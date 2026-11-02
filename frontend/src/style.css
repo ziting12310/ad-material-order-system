@@ -1,0 +1,59 @@
+/* Tailwind 指令 + 全局组件类（对齐 UI_UX_SPEC.md） */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #app { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #1F2937;
+    background-color: #F9FAFB;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  /* ===== 按钮三态（UI_UX_SPEC §组件规范）===== */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white rounded-md bg-brand hover:bg-brand-700 active:bg-brand-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 rounded-md bg-white border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white rounded-md bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-warning {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white rounded-md bg-amber-500 hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center px-3 py-1.5 text-sm text-gray-600 rounded-md hover:bg-gray-100 transition-colors;
+  }
+
+  /* ===== 输入框 ===== */
+  .input {
+    @apply w-full px-3 py-2 text-sm border border-gray-300 rounded-md bg-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand disabled:bg-gray-50 disabled:cursor-not-allowed transition;
+  }
+
+  /* ===== 卡片 ===== */
+  .card {
+    @apply bg-white rounded-lg shadow-card border border-gray-100;
+  }
+
+  /* ===== 状态徽章（7 色订单状态）===== */
+  .badge { @apply inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full; }
+  .badge-created      { @apply badge bg-gray-100 text-gray-700; }
+  .badge-assigned     { @apply badge bg-blue-50 text-blue-700; }
+  .badge-designing    { @apply badge bg-orange-50 text-orange-700; }
+  .badge-wait_approve { @apply badge bg-violet-50 text-violet-700; }
+  .badge-approved     { @apply badge bg-cyan-50 text-cyan-700; }
+  .badge-delivered    { @apply badge bg-green-50 text-green-700; }
+  .badge-cancelled    { @apply badge bg-gray-700 text-white; }
+}
+
+/* ===== 简单 fade 过渡 ===== */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }

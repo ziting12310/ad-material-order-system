@@ -1,0 +1,39 @@
+package com.peak.config;
+
+import com.peak.config.security.JwtInterceptor;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+/**
+ * Web MVC 配置：JWT 拦截器注册
+ *
+ * <p>职责：仅管拦截器注册；CORS 跨域已独立为 CorsConfig，避免职责重叠。
+ * JWT 拦截器拦截 /v1/**，放行登录接口 + Knife4j 文档路径。</p>
+ *
+ * <p>放行白名单：
+ *  - /v1/auth/login       — 登录接口本身不需要 Token
+ *  - /v1/files/presign    — 文件直传签名（presign 不鉴权）
+ *  - /doc.html 等         — Knife4j / Swagger 文档
+ *  - OPTIONS 方法         — 由 JwtInterceptor 放行（CORS 预检）</p>
+ */
+@Configuration
+@RequiredArgsConstructor
+public class WebMvcConfig implements WebMvcConfigurer {
+
+    private final JwtInterceptor jwtInterceptor;
+
+    /** 注册 JWT 拦截器 */
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(jwtInterceptor)
+                .addPathPatterns("/v1/**")                              // 拦截所有 API
+                .excludePathPatterns(
+                        "/v1/auth/login",                              // 登录放行
+                        "/v1/files/presign",                           // 文件签名放行
+                        "/doc.html", "/webjars/**", "/v3/api-docs/**",
+                        "/swagger-ui/**", "/swagger-resources/**"      // Knife4j / Swagger
+                );
+    }
+}

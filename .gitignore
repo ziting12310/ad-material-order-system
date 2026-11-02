@@ -1,0 +1,10 @@
+# Java
+target/
+*.class
+# Vue
+node_modules/
+dist/
+# IDE缓存
+.idea/
+.vscode/
+*.log

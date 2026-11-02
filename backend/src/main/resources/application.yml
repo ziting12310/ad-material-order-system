@@ -1,0 +1,197 @@
+# ============================================================================
+# AMOMS 应用配置
+# Spring Boot 3.2.x | 参考：ARCHITECTURE.md + DATABASE.md + schema.sql
+# Profile：dev（默认）/ prod
+# ============================================================================
+
+spring:
+  application:
+    name: amoms
+  profiles:
+    active: dev
+
+  # ---------- MySQL ----------
+  # utf8mb4 显式指定防止中文乱码
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: "jdbc:mysql://localhost:3306/amoms?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false"
+    username: root
+    password: 130026
+    hikari:
+      pool-name: AmomsHikariPool
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      connection-test-query: "SELECT 1"
+
+  # ---------- Spring Cache ----------
+  cache:
+    type: redis
+    redis:
+      time-to-live: 7200000
+      use-key-prefix: true
+      key-prefix: "amoms:cache:"
+
+  # ---------- Redis ----------
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: "${REDIS_PASSWORD:}"
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          min-idle: 2
+          max-active: 16
+          max-idle: 8
+
+  # ---------- Jackson 序列化 ----------
+  jackson:
+    date-format: "yyyy-MM-dd HH:mm:ss"
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+  # ---------- 文件上传 ----------
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+# ---------- MyBatis-Plus ----------
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    lazy-loading-enabled: false
+    default-statement-timeout: 30
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+  global-config:
+    db-config:
+      table-underline: true
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      id-type: auto
+  mapper-locations: "classpath*:mapper/**/*Mapper.xml"
+  type-aliases-package: com.peak.entity
+
+# ---------- JWT ----------
+amoms:
+  jwt:
+    secret: "${JWT_SECRET:QW1vbXMgU2VjcmV0I2tleSBmb3IgUEVBSyAxMjM0NTY3ODkgYWJjZGVm}"
+    expire-seconds: 7200
+    issuer: AMOMS
+    header: Authorization
+    prefix: "Bearer "
+    blacklist-prefix: "auth:blacklist:"
+  bcrypt-strength: 10
+
+# ---------- Actuator ----------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,metrics,prometheus"
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      show-components: when-authorized
+  metrics:
+    tags:
+      application: "${spring.application.name}"
+
+# ---------- Swagger ----------
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+# ---------- Server ----------
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+    encoding:
+      charset: UTF-8
+      force: true
+      force-request: true
+      force-response: true
+
+# ---------- Logback ----------
+logging:
+  level:
+    root: INFO
+    com.peak: DEBUG
+    com.baomidou.mybatisplus: INFO
+    org.springframework.security: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{traceId}] - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{traceId}] - %msg%n"
+  file:
+    name: logs/app.log
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 30
+      total-size-cap: 10GB
+      file-name-pattern: "logs/app.%d{yyyy-MM-dd}.%i.log.gz"
+
+# ================================================================
+# dev Profile 覆盖
+# ================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+logging:
+  level:
+    com.peak: DEBUG
+    com.baomidou.mybatisplus.core: DEBUG
+
+knife4j:
+  enable: true
+  production: false
+
+# ================================================================
+# prod Profile 覆盖
+# ================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+logging:
+  level:
+    root: INFO
+    com.peak: INFO
+
+knife4j:
+  enable: false
+  production: true

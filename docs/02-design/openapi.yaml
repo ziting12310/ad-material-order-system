@@ -1,0 +1,1668 @@
+openapi: 3.0.3
+info:
+  title: 广告制作公司宣传物料订单管理系统 API
+  description: |
+    Advertising Material Order Management System (AMOMS) - MVP Version
+    所有字段命名与枚举值严格遵循 GLOSSARY.md 统一领域语言词汇表。
+  version: 1.0.0
+  contact:
+    name: API Team
+servers:
+  - url: /api/v1
+    description: Base URL
+
+tags:
+  - name: Auth
+    description: 认证相关接口
+  - name: Files
+    description: 文件上传相关接口
+  - name: Orders
+    description: 订单管理接口
+  - name: Design Versions
+    description: 设计稿版本接口
+  - name: Order Feedbacks
+    description: 修改意见接口
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 用户登录
+      description: 辅助接口，用户名密码登录获取 JWT Token
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfLoginResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 认证失败（账号密码错误 / 账号锁定）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /files/presign:
+    post:
+      tags: [Files]
+      summary: 获取文件直传签名
+      description: |
+        辅助接口，获取 OSS 直传签名。前端获取签名后直接上传文件到 OSS，
+        上传成功后将返回的 fileId 关联到业务记录。
+        文件上传完整流程、OSS 路径规则、格式白名单详见 FILE_CONTRACT.md。
+      operationId: presignFile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignRequest'
+      responses:
+        '200':
+          description: 获取签名成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfPresignResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /orders:
+    get:
+      tags: [Orders]
+      summary: 查询订单列表
+      description: |
+        Domain Action: ListOrders
+        数据范围：AM 看本人创建；BL 看全部；DS 看本人负责。
+        使用 Cursor 游标分页，禁止 offset/page 分页。
+      operationId: listOrders
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          description: 游标，首次请求不传
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: 每页条数，默认 20，最大 50
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 50
+        - name: status
+          in: query
+          description: 订单状态筛选（OrderStatus 枚举值）
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: keyword
+          in: query
+          description: 搜索关键词，匹配订单编号/客户名称（模糊匹配）
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfCursorPageOfOrderListItem'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+    post:
+      tags: [Orders]
+      summary: 创建订单
+      description: |
+        Domain Action: CreateOrder
+        角色：客户经理（AM）
+        前置状态：WAIT_CREATE → CREATED（T-01）
+        是否需 version：否
+      operationId: createOrder
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateRequest'
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderCreateResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限（非 AM 角色）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      summary: 查询订单详情
+      description: |
+        Domain Action: GetOrder
+        数据范围：AM 看本人创建；BL 看全部；DS 看本人负责。
+      operationId: getOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 订单 ID
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderDetail'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 数据越权
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+    put:
+      tags: [Orders]
+      summary: 编辑订单
+      description: |
+        Domain Action: UpdateOrder
+        角色：AM（本人创建）/ BL（全部）
+        前置状态：仅 CREATED（待分派）状态可编辑
+        是否需 version：是
+      operationId: updateOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 订单 ID
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderUpdateRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderDetail'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突（乐观锁）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 状态不允许编辑（非 CREATED 状态）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /orders/{id}/assign:
+    put:
+      tags: [Orders]
+      summary: 分派订单
+      description: |
+        Domain Action: AssignOrder
+        角色：业务负责人（BL）
+        前置状态：CREATED → ASSIGNED（T-02）
+        是否需 version：是
+      operationId: assignOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 订单 ID
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderAssignRequest'
+      responses:
+        '200':
+          description: 分派成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderAssignResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限（非 BL 角色）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单或设计人员不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突（并发分派）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 订单已分派，不可重复分派
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /orders/{id}/accept:
+    put:
+      tags: [Orders]
+      summary: 确认接收任务
+      description: |
+        Domain Action: AcceptTask
+        角色：设计制作人员（DS）
+        前置状态：ASSIGNED → DESIGNING（T-03）
+        是否需 version：是
+      operationId: acceptTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 订单 ID
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionOnlyRequest'
+      responses:
+        '200':
+          description: 接收成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderStatusUpdateResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限（非本人负责的订单）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 订单状态不允许接收（非 ASSIGNED 状态）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /orders/{id}/reject:
+    put:
+      tags: [Orders]
+      summary: 驳回设计稿
+      description: |
+        Domain Action: RejectDesign
+        角色：业务负责人（BL）
+        前置状态：WAIT_APPROVE → DESIGNING（T-06）
+        是否需 version：是
+      operationId: rejectDesign
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 订单 ID
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRejectRequest'
+      responses:
+        '200':
+          description: 驳回成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderRejectResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限（非 BL 角色）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 订单状态不允许驳回（非 WAIT_APPROVE 状态）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /orders/{id}/approve:
+    put:
+      tags: [Orders]
+      summary: 确认终稿
+      description: |
+        Domain Action: ApproveFinal
+        角色：业务负责人（BL）
+        前置状态：WAIT_APPROVE → APPROVED（T-08）
+        是否需 version：是
+      operationId: approveFinal
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 订单 ID
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderApproveRequest'
+      responses:
+        '200':
+          description: 定稿成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderApproveResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限（非 BL 角色）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突（并发确认）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 订单状态不允许定稿（非 WAIT_APPROVE 状态）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /orders/{id}/deliver:
+    put:
+      tags: [Orders]
+      summary: 标记交付
+      description: |
+        Domain Action: MarkDelivered
+        角色：业务负责人（BL）
+        前置状态：APPROVED → DELIVERED（T-09）
+        是否需 version：是
+      operationId: markDelivered
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 订单 ID
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderDeliverRequest'
+      responses:
+        '200':
+          description: 交付成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderDeliverResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限（非 BL 角色）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 订单尚未定稿，不可交付（非 APPROVED 状态）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /orders/{id}/cancel:
+    put:
+      tags: [Orders]
+      summary: 作废订单
+      description: |
+        Domain Action: CancelOrder
+        角色：业务负责人（BL）
+        前置状态：CREATED/ASSIGNED/DESIGNING/WAIT_APPROVE → CANCELLED（T-10）
+        是否需 version：是
+      operationId: cancelOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 订单 ID
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCancelRequest'
+      responses:
+        '200':
+          description: 作废成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderStatusUpdateResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限（非 BL 角色）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 订单已交付/已作废，不可作废
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /design-versions:
+    post:
+      tags: [Design Versions]
+      summary: 上传设计稿版本
+      description: |
+        Domain Action: UploadFirstDesign / UploadNewVersion
+        角色：设计制作人员（DS）
+        前置状态：DESIGNING → WAIT_APPROVE（T-04 / T-07）
+        是否需 version：是
+        说明：该接口同时承载首版上传与迭代上传，由订单当前状态自动区分。
+        - 订单状态 DESIGNING 且无历史版本 → 首版上传（V1）
+        - 订单状态 DESIGNING 且存在待处理意见 → 迭代上传（Vn+1）
+      operationId: uploadDesignVersion
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DesignVersionCreateRequest'
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfDesignVersionResponse'
+        '400':
+          description: 参数校验失败 / 文件格式不支持
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限（非本人负责的订单）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 订单状态不允许上传（非 DESIGNING 状态 / 无待处理意见）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+  /order-feedbacks:
+    post:
+      tags: [Order Feedbacks]
+      summary: 提交修改意见
+      description: |
+        Domain Action: SubmitFeedback
+        角色：客户经理（AM）/ 业务负责人（BL）
+        前置状态：WAIT_APPROVE → DESIGNING（T-05）
+        是否需 version：是
+      operationId: submitFeedback
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderFeedbackCreateRequest'
+      responses:
+        '200':
+          description: 提交成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfOrderFeedbackResponse'
+        '400':
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '404':
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '409':
+          description: 版本冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+        '422':
+          description: 订单状态不允许提交意见（非 WAIT_APPROVE 状态）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseOfNull'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT 访问令牌，格式：Bearer {token}
+
+  schemas:
+    # ===== 统一响应包装 =====
+    ApiResponseOfNull:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: 操作成功
+        data:
+          type: object
+          nullable: true
+          example: null
+        traceId:
+          type: string
+          example: abc123def456
+      required: [code, message, data, traceId]
+
+    ApiResponseOfLoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/LoginResponse'
+
+    ApiResponseOfPresignResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PresignResponse'
+
+    ApiResponseOfCursorPageOfOrderListItem:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CursorPageOfOrderListItem'
+
+    ApiResponseOfOrderCreateResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderCreateResponse'
+
+    ApiResponseOfOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderDetail'
+
+    ApiResponseOfOrderAssignResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderAssignResponse'
+
+    ApiResponseOfOrderStatusUpdateResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderStatusUpdateResponse'
+
+    ApiResponseOfOrderRejectResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderRejectResponse'
+
+    ApiResponseOfOrderApproveResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderApproveResponse'
+
+    ApiResponseOfOrderDeliverResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderDeliverResponse'
+
+    ApiResponseOfDesignVersionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DesignVersionResponse'
+
+    ApiResponseOfOrderFeedbackResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseOfNull'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderFeedbackResponse'
+
+    # ===== 游标分页 =====
+    CursorPageOfOrderListItem:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderListItem'
+        nextCursor:
+          type: string
+          nullable: true
+          description: 下一页游标，无更多数据时为 null
+        hasMore:
+          type: boolean
+          description: 是否还有下一页
+        total:
+          type: integer
+          description: 总记录数（仅首页返回准确值）
+      required: [list, nextCursor, hasMore, total]
+
+    # ===== 枚举 =====
+    OrderStatus:
+      type: string
+      enum:
+        - WAIT_CREATE
+        - CREATED
+        - ASSIGNED
+        - DESIGNING
+        - WAIT_APPROVE
+        - APPROVED
+        - DELIVERED
+        - CANCELLED
+      description: |
+        订单状态枚举：
+        - WAIT_CREATE: 待登记
+        - CREATED: 已登记（待分派）
+        - ASSIGNED: 已分派
+        - DESIGNING: 设计中（含修改中）
+        - WAIT_APPROVE: 待定稿（待审核）
+        - APPROVED: 已定稿
+        - DELIVERED: 已交付
+        - CANCELLED: 已作废
+
+    MaterialType:
+      type: string
+      enum:
+        - POSTER
+        - FLYER
+        - BUSINESS_CARD
+        - BROCHURE
+        - BANNER
+        - OTHER
+      description: |
+        物料类型枚举：
+        - POSTER: 海报
+        - FLYER: 宣传单
+        - BUSINESS_CARD: 名片
+        - BROCHURE: 画册
+        - BANNER: 喷绘
+        - OTHER: 其他
+
+    UserRole:
+      type: string
+      enum:
+        - AM
+        - BL
+        - DS
+      description: |
+        用户角色枚举：
+        - AM: 客户经理
+        - BL: 业务负责人
+        - DS: 设计制作人员
+
+    FeedbackStatus:
+      type: string
+      enum:
+        - PENDING
+        - PROCESSED
+      description: |
+        修改意见状态枚举：
+        - PENDING: 待处理
+        - PROCESSED: 已处理
+
+    # ===== 登录 =====
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          description: 登录账号
+        password:
+          type: string
+          description: 登录密码
+      required: [username, password]
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT 访问令牌
+        tokenType:
+          type: string
+          description: 令牌类型，固定为 Bearer
+          example: Bearer
+        expiresIn:
+          type: integer
+          description: 过期时间（秒）
+          example: 7200
+        user:
+          $ref: '#/components/schemas/UserInfo'
+      required: [token, tokenType, expiresIn, user]
+
+    UserInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 用户 ID
+        username:
+          type: string
+          description: 登录账号
+        name:
+          type: string
+          description: 用户姓名
+        role:
+          $ref: '#/components/schemas/UserRole'
+        phone:
+          type: string
+          description: 用户手机号（脱敏显示）
+      required: [id, username, name, role, phone]
+
+    # ===== 文件 =====
+    PresignRequest:
+      type: object
+      properties:
+        fileType:
+          type: string
+          description: '文件类型：reference（参考文件）/ design（设计稿）'
+          enum: [reference, design]
+        fileName:
+          type: string
+          description: 原始文件名
+        fileSize:
+          type: integer
+          format: int64
+          description: 文件大小（字节）
+        contentType:
+          type: string
+          description: 文件 MIME 类型
+      required: [fileType, fileName, fileSize, contentType]
+
+    PresignResponse:
+      type: object
+      properties:
+        uploadUrl:
+          type: string
+          description: OSS 上传地址
+        fileId:
+          type: string
+          description: 文件唯一标识
+        accessUrl:
+          type: string
+          description: 上传成功后的访问 URL
+        formData:
+          type: object
+          additionalProperties:
+            type: string
+          description: OSS Policy 签名表单字段
+      required: [uploadUrl, fileId, accessUrl, formData]
+
+    # ===== 订单 =====
+    OrderListItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 订单 ID
+        orderNo:
+          type: string
+          description: 订单编号
+        customerName:
+          type: string
+          description: 客户名称
+        materialType:
+          $ref: '#/components/schemas/MaterialType'
+        quantity:
+          type: integer
+          description: 数量
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        deliveryDate:
+          type: string
+          format: date
+          description: 交付日期
+        designerName:
+          type: string
+          nullable: true
+          description: 设计负责人姓名
+        createdAt:
+          type: string
+          format: date-time
+          description: 创建时间
+      required: [id, orderNo, customerName, materialType, quantity, status, deliveryDate, createdAt]
+
+    OrderCreateRequest:
+      type: object
+      properties:
+        customerName:
+          type: string
+          minLength: 2
+          maxLength: 100
+          description: 客户名称
+        contactName:
+          type: string
+          minLength: 2
+          maxLength: 20
+          description: 联系人姓名
+        contactPhone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+          description: 联系电话（11位手机号）
+        materialType:
+          $ref: '#/components/schemas/MaterialType'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99999
+          description: 数量
+        specification:
+          type: string
+          minLength: 5
+          maxLength: 200
+          description: 规格说明
+        deliveryDate:
+          type: string
+          format: date
+          description: 交付日期
+        remark:
+          type: string
+          maxLength: 500
+          description: 备注说明
+        referenceFileIds:
+          type: array
+          items:
+            type: string
+          maxItems: 5
+          description: 参考文件 ID 列表
+      required: [customerName, contactName, contactPhone, materialType, quantity, specification, deliveryDate]
+
+    OrderCreateResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 订单 ID
+        orderNo:
+          type: string
+          description: 订单编号
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        createdAt:
+          type: string
+          format: date-time
+          description: 创建时间
+      required: [id, orderNo, status, createdAt]
+
+    OrderUpdateRequest:
+      type: object
+      properties:
+        customerName:
+          type: string
+          minLength: 2
+          maxLength: 100
+        contactName:
+          type: string
+          minLength: 2
+          maxLength: 20
+        contactPhone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        materialType:
+          $ref: '#/components/schemas/MaterialType'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99999
+        specification:
+          type: string
+          minLength: 5
+          maxLength: 200
+        deliveryDate:
+          type: string
+          format: date
+        remark:
+          type: string
+          maxLength: 500
+        referenceFileIds:
+          type: array
+          items:
+            type: string
+          maxItems: 5
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [customerName, contactName, contactPhone, materialType, quantity, specification, deliveryDate, version]
+
+    OrderDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        orderNo:
+          type: string
+        customerName:
+          type: string
+        contactName:
+          type: string
+        contactPhone:
+          type: string
+        materialType:
+          $ref: '#/components/schemas/MaterialType'
+        quantity:
+          type: integer
+        specification:
+          type: string
+        deliveryDate:
+          type: string
+          format: date
+        remark:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        designerId:
+          type: integer
+          format: int64
+          nullable: true
+        designerName:
+          type: string
+          nullable: true
+        createdBy:
+          type: integer
+          format: int64
+        createdByName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        assignedAt:
+          type: string
+          format: date-time
+          nullable: true
+        isArchived:
+          type: boolean
+        version:
+          type: integer
+        referenceFiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReferenceFile'
+        designVersions:
+          type: array
+          items:
+            $ref: '#/components/schemas/DesignVersionItem'
+        feedbacks:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderFeedbackItem'
+      required: [id, orderNo, customerName, contactName, contactPhone, materialType, quantity, specification, deliveryDate, status, createdBy, createdByName, createdAt, isArchived, version, referenceFiles, designVersions, feedbacks]
+
+    ReferenceFile:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        fileUrl:
+          type: string
+        fileName:
+          type: string
+        fileSize:
+          type: integer
+          format: int64
+      required: [id, fileUrl, fileName, fileSize]
+
+    DesignVersionItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        versionNo:
+          type: string
+        fileUrl:
+          type: string
+        fileName:
+          type: string
+        fileSize:
+          type: integer
+          format: int64
+        versionNote:
+          type: string
+        isFinal:
+          type: boolean
+        uploadedByName:
+          type: string
+        uploadedAt:
+          type: string
+          format: date-time
+      required: [id, versionNo, fileUrl, fileName, fileSize, versionNote, isFinal, uploadedByName, uploadedAt]
+
+    OrderFeedbackItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        content:
+          type: string
+        versionId:
+          type: integer
+          format: int64
+        versionNo:
+          type: string
+        status:
+          $ref: '#/components/schemas/FeedbackStatus'
+        submittedByName:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+      required: [id, content, versionId, versionNo, status, submittedByName, submittedAt]
+
+    # ===== 订单操作请求/响应 =====
+    OrderAssignRequest:
+      type: object
+      properties:
+        designerId:
+          type: integer
+          format: int64
+          description: 设计负责人 ID
+        assignRemark:
+          type: string
+          maxLength: 100
+          description: 分派备注
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [designerId, version]
+
+    OrderAssignResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        designerId:
+          type: integer
+          format: int64
+        designerName:
+          type: string
+        assignedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+      required: [id, status, designerId, designerName, assignedAt, version]
+
+    VersionOnlyRequest:
+      type: object
+      properties:
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [version]
+
+    OrderStatusUpdateResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        version:
+          type: integer
+      required: [id, status, version]
+
+    OrderRejectRequest:
+      type: object
+      properties:
+        rejectNote:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 驳回原因
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [rejectNote, version]
+
+    OrderRejectResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        feedbackId:
+          type: integer
+          format: int64
+        version:
+          type: integer
+      required: [id, status, feedbackId, version]
+
+    OrderApproveRequest:
+      type: object
+      properties:
+        approveNote:
+          type: string
+          maxLength: 200
+          description: 审核意见
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [version]
+
+    OrderApproveResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        finalVersionId:
+          type: integer
+          format: int64
+        approvedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+      required: [id, status, finalVersionId, approvedAt, version]
+
+    OrderDeliverRequest:
+      type: object
+      properties:
+        deliverRemark:
+          type: string
+          maxLength: 100
+          description: 交付备注
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [version]
+
+    OrderDeliverResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        deliveredAt:
+          type: string
+          format: date-time
+        isArchived:
+          type: boolean
+        version:
+          type: integer
+      required: [id, status, deliveredAt, isArchived, version]
+
+    OrderCancelRequest:
+      type: object
+      properties:
+        cancelReason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: 作废原因
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [cancelReason, version]
+
+    # ===== 设计稿版本 =====
+    DesignVersionCreateRequest:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          format: int64
+          description: 关联订单 ID
+        fileId:
+          type: string
+          description: 设计稿文件 ID（presign 返回）
+        fileName:
+          type: string
+          maxLength: 200
+          description: 原始文件名
+        fileSize:
+          type: integer
+          format: int64
+          description: 文件大小（字节），源文件 ≤100MB
+        fileType:
+          type: string
+          description: 文件类型（扩展名）
+          enum: [psd, ai, jpg, png, pdf, webp]
+        versionNote:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: 版本说明
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [orderId, fileId, fileName, fileSize, fileType, versionNote, version]
+
+    DesignVersionResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        versionNo:
+          type: string
+        fileUrl:
+          type: string
+        fileName:
+          type: string
+        fileSize:
+          type: integer
+          format: int64
+        versionNote:
+          type: string
+        isFinal:
+          type: boolean
+        uploadedAt:
+          type: string
+          format: date-time
+        orderStatus:
+          $ref: '#/components/schemas/OrderStatus'
+        orderVersion:
+          type: integer
+      required: [id, versionNo, fileUrl, fileName, fileSize, versionNote, isFinal, uploadedAt, orderStatus, orderVersion]
+
+    # ===== 修改意见 =====
+    OrderFeedbackCreateRequest:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          format: int64
+          description: 关联订单 ID
+        content:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 修改意见内容
+        version:
+          type: integer
+          description: 乐观锁版本号
+      required: [orderId, content, version]
+
+    OrderFeedbackResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        content:
+          type: string
+        status:
+          $ref: '#/components/schemas/FeedbackStatus'
+        versionId:
+          type: integer
+          format: int64
+        versionNo:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        orderStatus:
+          $ref: '#/components/schemas/OrderStatus'
+        orderVersion:
+          type: integer
+      required: [id, content, status, versionId, versionNo, submittedAt, orderStatus, orderVersion]
