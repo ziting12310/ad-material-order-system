@@ -436,7 +436,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderRejectResponseVO rejectDesign(Long orderId, OrderRejectRequest dto, Long operatorId) {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.WAIT_APPROVE, "驳回设计");
-        requireRole(operatorId, UserRole.BL.getCode());
+        requireAnyRole(operatorId, UserRole.BL.getCode(), UserRole.AM.getCode());
         checkNotArchived(order);
         checkVersion(order, dto.getVersion());
 
@@ -491,7 +491,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderApproveResponseVO approveFinal(Long orderId, OrderApproveRequest dto, Long operatorId) {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.WAIT_APPROVE, "确认终稿");
-        requireRole(operatorId, UserRole.BL.getCode());
+        requireAnyRole(operatorId, UserRole.BL.getCode(), UserRole.AM.getCode());
         checkNotArchived(order);
         checkVersion(order, dto.getVersion());
 
@@ -826,6 +826,25 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorCode.PERMISSION_DENIED,
                     "需要 %s 角色才能执行该操作", UserRole.of(requiredRole).getLabel());
         }
+    }
+
+    /** 多角色任一满足即可 */
+    private void requireAnyRole(Long userId, String... allowedRoles) {
+        String actualRole = getUserRole(userId);
+        if (actualRole == null) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "用户不存在");
+        }
+        for (String r : allowedRoles) {
+            if (r.equals(actualRole)) return;
+        }
+        StringBuilder labels = new StringBuilder();
+        for (int i = 0; i < allowedRoles.length; i++) {
+            if (i > 0) labels.append("/");
+            UserRole ur = UserRole.of(allowedRoles[i]);
+            labels.append(ur != null ? ur.getLabel() : allowedRoles[i]);
+        }
+        throw new BusinessException(ErrorCode.PERMISSION_DENIED,
+                "需要 %s 角色才能执行该操作", labels);
     }
 
     private String getUserRole(Long userId) {
