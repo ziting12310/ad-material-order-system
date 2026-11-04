@@ -57,6 +57,11 @@ public class JwtUtil {
         this.expireSeconds = expireSeconds;
     }
 
+    /** 过期秒数（供登录响应组装 expiresIn 字段） */
+    public long getExpireSeconds() {
+        return expireSeconds;
+    }
+
     // ========================================================================
     // 【签发】generateToken — 用户登录时调用
     // ========================================================================

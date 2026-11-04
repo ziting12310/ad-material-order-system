@@ -7,24 +7,19 @@ import com.peak.entity.User;
 import com.peak.exception.BusinessException;
 import com.peak.mapper.UserMapper;
 import com.peak.service.AuthService;
+import com.peak.util.JwtUtil;
+import com.peak.util.PasswordUtil;
 import com.peak.vo.LoginResponseVO;
 import com.peak.vo.UserInfoVO;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import javax.crypto.SecretKey;
-import java.util.Base64;
-import java.util.Date;
 
 /**
  * 认证服务实现 — API.md §2.1 / §2.2
  *
- * <p>职责：密码校验 / JWT 签发 / 当前用户查询</p>
+ * <p>职责：密码校验 / JWT 签发 / 当前用户查询
+ * JWT 签发统一委托 JwtUtil，密码校验统一委托 PasswordUtil，本类只做业务编排。</p>
  */
 @Slf4j
 @Service
@@ -32,20 +27,15 @@ import java.util.Date;
 public class AuthServiceImpl implements AuthService {
 
     private final UserMapper userMapper;
-    private final BCryptPasswordEncoder passwordEncoder;   // 由 config/security 配置类注册 Bean
-
-    @Value("${amoms.jwt.secret}")
-    private String jwtSecret;
-
-    @Value("${amoms.jwt.expire-seconds}")
-    private long expireSeconds;
+    private final JwtUtil jwtUtil;
+    private final PasswordUtil passwordUtil;
 
     // ================================================================
     // 伪代码流程：
     // ① 按 username 查用户 → 不存在 → USER_NOT_FOUND
     // ② 校验 locked 字段 → 已锁定 → ACCOUNT_LOCKED
-    // ③ BCrypt 校验密码 → 不匹配 → LOGIN_FAILED
-    // ④ 签发 JWT（payload: sub=userId, role, name；过期时间 2h）
+    // ③ BCrypt 校验密码（PasswordUtil）→ 不匹配 → LOGIN_FAILED
+    // ④ 签发 JWT（JwtUtil：sub=userId, role, name；过期时间 2h）
     // ⑤ 更新 last_login_at
     // ⑥ 组装 LoginResponseVO 返回
     // ================================================================
@@ -65,24 +55,23 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // ③ BCrypt 密码校验
-        if (!passwordEncoder.matches(dto.getPassword(), user.getPasswordHash())) {
+        if (!passwordUtil.matches(dto.getPassword(), user.getPasswordHash())) {
             log.warn("登录失败：用户 {} 密码错误", dto.getUsername());
             throw new BusinessException(ErrorCode.LOGIN_FAILED, "账号或密码错误");
         }
 
         // ④ 签发 JWT
-        String token = generateToken(user);
+        String token = jwtUtil.generateToken(user.getId(), user.getRole(), user.getName());
 
         // ⑤ 更新最后登录时间
-        user.setLastLoginAt(new Date(System.currentTimeMillis())
-                .toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime());
+        user.setLastLoginAt(java.time.LocalDateTime.now());
         userMapper.updateById(user);
 
         // ⑥ 组装响应
         LoginResponseVO resp = new LoginResponseVO();
         resp.setToken(token);
         resp.setTokenType("Bearer");
-        resp.setExpiresIn(expireSeconds);
+        resp.setExpiresIn(jwtUtil.getExpireSeconds());
         resp.setUser(buildUserInfoVO(user));
         return resp;
     }
@@ -97,21 +86,6 @@ public class AuthServiceImpl implements AuthService {
     }
 
     // ---------- 私有辅助方法 ----------
-
-    /** 签发 JWT — jjwt 0.12.x */
-    private String generateToken(User user) {
-        SecretKey key = Keys.hmacShaKeyFor(Base64.getDecoder().decode(jwtSecret));
-        long now = System.currentTimeMillis();
-        return Jwts.builder()
-                .subject(String.valueOf(user.getId()))          // sub = userId
-                .claim("role", user.getRole())                  // role
-                .claim("name", user.getName())                  // 姓名（方便拦截器直接读）
-                .issuedAt(new Date(now))
-                .expiration(new Date(now + expireSeconds * 1000))
-                .issuer("AMOMS")
-                .signWith(key)
-                .compact();
-    }
 
     /** Entity → VO（脱敏 phone） */
     private UserInfoVO buildUserInfoVO(User user) {
