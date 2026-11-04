@@ -1,20 +1,15 @@
 <template>
-  <!-- 未登录 → 全屏登录页；已登录 → 侧边栏布局 -->
-  <router-view v-if="!userStore.isLogin" />
-  <AppLayout v-else>
-    <router-view v-slot="{ Component }">
-      <transition name="fade" mode="out-in">
-        <component :is="Component" />
-      </transition>
-    </router-view>
-  </AppLayout>
+  <router-view />
 </template>
 
 <script setup>
-import AppLayout from '@/components/AppLayout.vue'
-import { useUserStore } from '@/stores/user'
-
-const userStore = useUserStore()
-// 刷新时从 localStorage 恢复登录态
-userStore.hydrate()
+// 应用根组件 — 仅承载路由视图，布局由 Layout 组件处理
 </script>
+
+<style>
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+</style>

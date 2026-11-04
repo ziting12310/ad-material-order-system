@@ -1,0 +1,98 @@
+/* 全局样式 — 简约商务后台 */
+
+@import './variables.css';
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    font-size: 14px;
+    color: var(--gray-700);
+    background-color: var(--gray-50);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+a:hover {
+    color: var(--primary-dark);
+}
+
+.font-mono {
+    font-family: 'SF Mono', Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--gray-300);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--gray-400);
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ========== Element Plus 主题覆写 ========== */
+
+/* 按钮 */
+.el-button--primary {
+    --el-button-bg-color: var(--primary-color);
+    --el-button-border-color: var(--primary-color);
+    --el-button-hover-bg-color: var(--primary-dark);
+    --el-button-hover-border-color: var(--primary-dark);
+    --el-button-active-bg-color: var(--primary-dark);
+    --el-button-active-border-color: var(--primary-dark);
+}
+
+/* 卡片圆角 */
+.el-card {
+    border-radius: var(--border-radius);
+}
+
+/* Tag 状态色 — 柔和浅色 */
+.el-tag--warning {
+    --el-tag-bg-color: var(--warning-light);
+    --el-tag-border-color: var(--warning-light);
+    --el-tag-text-color: #b45309;
+}
+.el-tag--success {
+    --el-tag-bg-color: var(--success-light);
+    --el-tag-border-color: var(--success-light);
+    --el-tag-text-color: #047857;
+}
+.el-tag--danger {
+    --el-tag-bg-color: var(--danger-light);
+    --el-tag-border-color: var(--danger-light);
+    --el-tag-text-color: #b91c1c;
+}
+.el-tag--info {
+    --el-tag-bg-color: var(--gray-100);
+    --el-tag-border-color: var(--gray-100);
+    --el-tag-text-color: var(--gray-600);
+}
+.el-tag--primary {
+    --el-tag-bg-color: var(--primary-light);
+    --el-tag-border-color: var(--primary-light);
+    --el-tag-text-color: var(--primary-dark);
+}
+
+/* 分页 */
+.el-pagination {
+    --el-pagination-hover-color: var(--primary-color);
+}
+.el-pagination .is-active {
+    --el-pagination-button-bg-color: var(--primary-color);
+    --el-pagination-button-border-color: var(--primary-color);
+}
