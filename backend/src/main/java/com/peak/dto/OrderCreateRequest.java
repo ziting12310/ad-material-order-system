@@ -10,6 +10,7 @@ import lombok.Data;
 
 import java.time.LocalDate;
 import java.util.List;
+import jakarta.validation.Valid;
 
 /** POST /api/v1/orders 入参（创建订单）— API.md §3.2 */
 @Data
@@ -26,16 +27,21 @@ public class OrderCreateRequest {
     @Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式不正确")
     private String contactPhone;
 
-    @NotBlank(message = "物料类型不能为空")
+    /** @deprecated 多物料模型下请使用 tasks 列表，此字段兼容旧版仅单物料时有效 */
+    @Deprecated
     private String materialType;
 
-    @NotNull(message = "数量不能为空")
-    @Positive(message = "数量必须大于 0")
+    /** @deprecated 多物料模型下请使用 tasks 列表 */
+    @Deprecated
     private Integer quantity;
 
-    @NotBlank(message = "规格说明不能为空")
-    @Size(min = 5, max = 200, message = "规格说明长度 5~200 字符")
+    /** @deprecated 多物料模型下请使用 tasks 列表 */
+    @Deprecated
     private String specification;
+
+    /** 物料任务列表（多物料模型） */
+    @Valid
+    private List<TaskCreateItem> tasks;
 
     @NotNull(message = "交付日期不能为空")
     @Future(message = "交付日期必须晚于今天")

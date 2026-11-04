@@ -3,7 +3,7 @@
 -- Database : MySQL 8.0+
 -- Charset  : utf8mb4 / utf8mb4_unicode_ci
 -- Engine   : InnoDB
--- 版本     : v1.0
+-- 版本     : v1.1 (多物料模型)
 -- 说明     : 可重复执行（IF NOT EXISTS + INSERT IGNORE）
 -- ============================================================================
 
@@ -100,12 +100,49 @@ CREATE TABLE `orders` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单主表';
 
 -- ----------------------------------------------------------------------------
--- 4. design_versions - 设计稿版本表
+-- 4. order_tasks - 物料任务表（多物料模型核心表）
+-- ----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `order_tasks`;
+CREATE TABLE `order_tasks` (
+  `id`                BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `order_id`          BIGINT        NOT NULL COMMENT '关联订单ID',
+  `task_no`           VARCHAR(20)   NOT NULL COMMENT '任务编号（T-001/T-002...）',
+  `material_type`     VARCHAR(32)   NOT NULL COMMENT '物料类型（MaterialType枚举）',
+  `quantity`          INT           NOT NULL COMMENT '数量',
+  `specification`     VARCHAR(200)  NOT NULL COMMENT '规格说明',
+  `usage_desc`        VARCHAR(200)           DEFAULT NULL COMMENT '用途说明',
+  `deadline`          DATE                   DEFAULT NULL COMMENT '任务截止日期',
+  `remark`            VARCHAR(500)           DEFAULT NULL COMMENT '任务备注',
+  `status`            VARCHAR(32)   NOT NULL DEFAULT 'CREATED' COMMENT '任务状态（OrderStatus枚举子集）',
+  `designer_id`       BIGINT                 DEFAULT NULL COMMENT '设计人员ID',
+  `assigned_by`       BIGINT                 DEFAULT NULL COMMENT '分派人ID',
+  `assigned_at`       DATETIME               DEFAULT NULL COMMENT '分派时间',
+  `approved_by`       BIGINT                 DEFAULT NULL COMMENT '定稿人ID',
+  `approved_at`       DATETIME               DEFAULT NULL COMMENT '定稿时间',
+  `final_version_id`  BIGINT                 DEFAULT NULL COMMENT '定稿版本ID',
+  `approve_remark`    VARCHAR(200)           DEFAULT NULL COMMENT '定稿备注',
+  `sort_order`        INT           NOT NULL DEFAULT 0 COMMENT '排序序号',
+  `version`           INT           NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
+  `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted`        TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '是否删除（0-否 1-是）',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_order_task_no` (`order_id`, `task_no`) COMMENT '同一订单内任务编号唯一',
+  KEY `idx_order_id` (`order_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_designer_id` (`designer_id`),
+  KEY `idx_deadline` (`deadline`),
+  KEY `idx_is_deleted` (`is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='物料任务表';
+
+-- ----------------------------------------------------------------------------
+-- 5. design_versions - 设计稿版本表
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `design_versions`;
 CREATE TABLE `design_versions` (
   `id`            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `order_id`      BIGINT        NOT NULL COMMENT '关联订单ID',
+  `task_id`       BIGINT                 DEFAULT NULL COMMENT '关联物料任务ID',
   `version_no`    VARCHAR(10)   NOT NULL COMMENT '版本号（V1/V2/V3...）',
   `file_id`       VARCHAR(500)  NOT NULL COMMENT 'OSS对象Key（presign返回，前端直传后回填）',
   `file_url`      VARCHAR(500)  NOT NULL COMMENT '文件访问URL（OSS）',
@@ -120,8 +157,9 @@ CREATE TABLE `design_versions` (
   `updated_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `is_deleted`    TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '是否删除（0-否 1-是）',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_order_version` (`order_id`, `version_no`) COMMENT '同一订单版本号唯一',
+  UNIQUE KEY `uk_task_version` (`task_id`, `version_no`) COMMENT '同一任务版本号唯一',
   KEY `idx_order_id` (`order_id`),
+  KEY `idx_task_id` (`task_id`),
   KEY `idx_is_final` (`is_final`),
   KEY `idx_uploaded_at` (`uploaded_at`),
   KEY `idx_is_deleted` (`is_deleted`)
@@ -134,6 +172,7 @@ DROP TABLE IF EXISTS `order_feedbacks`;
 CREATE TABLE `order_feedbacks` (
   `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `order_id`       BIGINT       NOT NULL COMMENT '关联订单ID',
+  `task_id`        BIGINT                DEFAULT NULL COMMENT '关联物料任务ID',
   `version_id`     BIGINT       NOT NULL COMMENT '关联设计稿版本ID',
   `content`        TEXT         NOT NULL COMMENT '修改意见内容',
   `status`         VARCHAR(32)  NOT NULL DEFAULT 'PENDING' COMMENT '意见状态（FeedbackStatus枚举：PENDING/PROCESSED）',
@@ -145,6 +184,7 @@ CREATE TABLE `order_feedbacks` (
   `is_deleted`     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否删除（0-否 1-是）',
   PRIMARY KEY (`id`),
   KEY `idx_order_feedback_status` (`order_id`, `status`) COMMENT '按订单+状态查询意见',
+  KEY `idx_task_id` (`task_id`),
   KEY `idx_version_id` (`version_id`),
   KEY `idx_submitted_by` (`submitted_by`),
   KEY `idx_submitted_at` (`submitted_at`),
@@ -158,6 +198,7 @@ DROP TABLE IF EXISTS `order_reference_files`;
 CREATE TABLE `order_reference_files` (
   `id`            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `order_id`      BIGINT        NOT NULL COMMENT '关联订单ID',
+  `task_id`       BIGINT                 DEFAULT NULL COMMENT '关联物料任务ID（订单级参考图为NULL）',
   `file_id`       VARCHAR(500)  NOT NULL COMMENT 'OSS对象Key（presign返回，前端直传后回填）',
   `file_url`      VARCHAR(500)  NOT NULL COMMENT '文件访问URL（OSS）',
   `file_name`     VARCHAR(200)  NOT NULL COMMENT '原始文件名',
@@ -169,9 +210,35 @@ CREATE TABLE `order_reference_files` (
   `is_deleted`    TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '是否删除（0-否 1-是）',
   PRIMARY KEY (`id`),
   KEY `idx_order_id` (`order_id`),
+  KEY `idx_task_id` (`task_id`),
   KEY `idx_uploaded_at` (`uploaded_at`),
   KEY `idx_is_deleted` (`is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单参考文件表';
+
+-- ----------------------------------------------------------------------------
+-- 8. order_operation_logs - 订单操作历史表
+-- ----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `order_operation_logs`;
+CREATE TABLE `order_operation_logs` (
+  `id`                BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `order_id`          BIGINT        NOT NULL COMMENT '关联订单ID',
+  `task_id`           BIGINT                 DEFAULT NULL COMMENT '关联物料任务ID（订单级操作为NULL）',
+  `operation_type`    VARCHAR(64)   NOT NULL COMMENT '操作类型（OperationType枚举）',
+  `description`       VARCHAR(500)  NOT NULL COMMENT '操作描述',
+  `before_value`      TEXT                   DEFAULT NULL COMMENT '变更前值（JSON）',
+  `after_value`       TEXT                   DEFAULT NULL COMMENT '变更后值（JSON）',
+  `operator_id`       BIGINT        NOT NULL COMMENT '操作人ID',
+  `operator_name`     VARCHAR(50)   NOT NULL COMMENT '操作人姓名（冗余）',
+  `operator_role`     VARCHAR(32)   NOT NULL COMMENT '操作人角色（冗余）',
+  `operated_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+  `client_ip`         VARCHAR(50)            DEFAULT NULL COMMENT '客户端IP',
+  PRIMARY KEY (`id`),
+  KEY `idx_order_id` (`order_id`),
+  KEY `idx_task_id` (`task_id`),
+  KEY `idx_operation_type` (`operation_type`),
+  KEY `idx_operator_id` (`operator_id`),
+  KEY `idx_operated_at` (`operated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单操作历史表';
 
 -- ============================================================================
 -- 初始化数据

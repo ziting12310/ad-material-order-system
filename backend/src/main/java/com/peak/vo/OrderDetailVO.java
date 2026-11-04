@@ -35,4 +35,16 @@ public class OrderDetailVO {
     private List<ReferenceFileVO> referenceFiles;
     private List<DesignVersionVO> designVersions;
     private List<OrderFeedbackVO> feedbacks;
+
+    /** 物料任务列表 */
+    private List<OrderTaskVO> tasks;
+
+    /** 操作历史日志 */
+    private List<OperationLogVO> operationLogs;
+
+    /** 任务总数 */
+    private Integer taskCount;
+
+    /** 已定稿任务数 */
+    private Integer approvedTaskCount;
 }

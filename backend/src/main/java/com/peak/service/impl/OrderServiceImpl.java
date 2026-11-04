@@ -2,49 +2,66 @@ package com.peak.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.peak.common.constants.ErrorCode;
 import com.peak.common.enums.FeedbackStatus;
+import com.peak.common.enums.MaterialType;
+import com.peak.common.enums.OperationType;
 import com.peak.common.enums.OrderStatus;
 import com.peak.common.enums.UserRole;
 import com.peak.dto.OrderApproveRequest;
 import com.peak.dto.OrderAssignRequest;
 import com.peak.dto.OrderCancelRequest;
+import com.peak.dto.OrderConfirmDTO;
 import com.peak.dto.OrderCreateRequest;
 import com.peak.dto.OrderDeliverRequest;
 import com.peak.dto.OrderRejectRequest;
 import com.peak.dto.OrderUpdateRequest;
+import com.peak.dto.TaskCreateItem;
 import com.peak.dto.VersionOnlyRequest;
 import com.peak.entity.DesignVersion;
 import com.peak.entity.Order;
 import com.peak.entity.OrderFeedback;
+import com.peak.entity.OrderOperationLog;
 import com.peak.entity.OrderReferenceFile;
+import com.peak.entity.OrderTask;
 import com.peak.entity.User;
 import com.peak.exception.BusinessException;
 import com.peak.mapper.DesignVersionMapper;
 import com.peak.mapper.OrderFeedbackMapper;
 import com.peak.mapper.OrderMapper;
+import com.peak.mapper.OrderOperationLogMapper;
 import com.peak.mapper.OrderReferenceFileMapper;
+import com.peak.mapper.OrderTaskMapper;
 import com.peak.mapper.UserMapper;
 import com.peak.service.OrderService;
+import com.peak.service.OrderTaskService;
+import com.peak.util.OperationLogUtil;
 import com.peak.vo.CursorPage;
+import com.peak.vo.DesignVersionVO;
+import com.peak.vo.OperationLogVO;
 import com.peak.vo.OrderApproveResponseVO;
 import com.peak.vo.OrderAssignResponseVO;
 import com.peak.vo.OrderCreateResponseVO;
 import com.peak.vo.OrderDeliverResponseVO;
 import com.peak.vo.OrderDetailVO;
+import com.peak.vo.OrderFeedbackVO;
 import com.peak.vo.OrderListItemVO;
 import com.peak.vo.OrderRejectResponseVO;
 import com.peak.vo.OrderStatusUpdateResponseVO;
+import com.peak.vo.OrderTaskVO;
 import com.peak.vo.ReferenceFileVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.text.StringEscapeUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -54,54 +71,54 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * 订单核心服务实现 — API.md §3（覆盖 13 个 Domain Actions 中 11 个订单级动作）
+ * 订单核心服务实现 — 多物料模型
  *
  * <p>职责边界：
- *  - 业务校验（存在性 / 权限 / 状态流转前置 / 乐观锁）
- *  - 状态推进（调用 MP updateById 触发 @Version 乐观锁插件）
- *  - VO 组装（Entity → VO，联表 users.name 填 designerName / createdByName）
- *  - 不写 SQL，全部委托 Mapper
- *  - 敏感字段过滤（passwordHash 不组装进 VO）
- * </p>
- *
- * <p>乐观锁拦截：MP OptimisticLockerInnerInterceptor 插件在 updateById 时自动
- * 追加 WHERE version = ?，更新成功后 SET version = version + 1。
- * 版本不匹配时 updateById 返回影响行数 0 → 本 ServiceImpl 检查后抛 ORDER_VERSION_CONFLICT。</p>
+ *  - 订单级 CRUD + 状态流转（创建/确认/交付/作废）
+ *  - 订单状态由所有物料任务状态聚合而来
+ *  - 操作日志记录
+ *  - 归档只读全链路校验
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
 
-    // ---------- Mapper 注入 ----------
     private final OrderMapper orderMapper;
     private final UserMapper userMapper;
     private final DesignVersionMapper designVersionMapper;
     private final OrderFeedbackMapper orderFeedbackMapper;
     private final OrderReferenceFileMapper orderReferenceFileMapper;
+    private final OrderTaskMapper orderTaskMapper;
+    private final OrderOperationLogMapper operationLogMapper;
+    private final OperationLogUtil opLog;
+
+    @Autowired
+    @Lazy
+    private OrderTaskService orderTaskService;
 
     // ========================================================================
-    // 【1】listOrders — API.md §3.1 订单列表（Cursor 游标分页）
+    // 【1】订单列表（Cursor 游标分页）
     // ========================================================================
     @Override
     public CursorPage<OrderListItemVO> listOrders(Long userId, String userRole,
                                                    String cursor, int limit,
-                                                   String materialType, String status, String keyword) {
-        // ① 解析游标 → lastId（游标为 null 时，查 created_at DESC, id DESC 首页）
+                                                   String materialType, String status, String keyword,
+                                                   Long designerId, Long creatorId,
+                                                   String deliveryDateFrom, String deliveryDateTo) {
         long lastId = decodeCursor(cursor);
         int effectiveLimit = Math.min(Math.max(limit, 1), 100);
 
-        // ② 构建查询条件（LambdaQueryWrapper — 驼峰映射自动生效）
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
-        wrapper.gt(Order::getId, lastId);              // 游标条件：上次最后一条的 ID 之后
+        wrapper.gt(Order::getId, lastId);
         wrapper.orderByDesc(Order::getCreatedAt);
         wrapper.orderByDesc(Order::getId);
-        wrapper.last("LIMIT " + (effectiveLimit + 1)); // 多查 1 条判断 hasMore
+        wrapper.last("LIMIT " + (effectiveLimit + 1));
 
-        // ③ 数据范围过滤（角色维度）
+        // 数据范围过滤
         applyDataScopeFilter(wrapper, userId, userRole);
 
-        // ④ 可选条件
+        // 可选过滤条件
         if (materialType != null && !materialType.isBlank()) {
             wrapper.eq(Order::getMaterialType, materialType);
         }
@@ -109,42 +126,57 @@ public class OrderServiceImpl implements OrderService {
             wrapper.eq(Order::getStatus, status);
         }
         if (keyword != null && !keyword.isBlank()) {
-            // XSS 清洗关键字（API.md §3.1 搜索特殊字符 XSS 防护）
             String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
             wrapper.and(w -> w.like(Order::getOrderNo, safeKeyword)
                     .or().like(Order::getCustomerName, safeKeyword));
         }
+        if (designerId != null) {
+            wrapper.eq(Order::getDesignerId, designerId);
+        }
+        if (creatorId != null) {
+            wrapper.eq(Order::getCreatedBy, creatorId);
+        }
+        if (deliveryDateFrom != null && !deliveryDateFrom.isBlank()) {
+            wrapper.ge(Order::getDeliveryDate, java.time.LocalDate.parse(deliveryDateFrom));
+        }
+        if (deliveryDateTo != null && !deliveryDateTo.isBlank()) {
+            wrapper.le(Order::getDeliveryDate, java.time.LocalDate.parse(deliveryDateTo));
+        }
 
-        // ⑤ 执行查询
         List<Order> all = orderMapper.selectList(wrapper);
         boolean hasMore = all.size() > effectiveLimit;
         List<Order> page = hasMore ? all.subList(0, effectiveLimit) : all;
         String nextCursor = hasMore ? encodeCursor(page.get(page.size() - 1).getId()) : null;
 
-        // ⑥ 联表查 designer 姓名（批量查询避免 N+1）
+        // 批量查设计师姓名
         Map<Long, String> designerNames = batchLoadUserNames(
                 page.stream().map(Order::getDesignerId).filter(id -> id != null).distinct().toList());
 
-        // ⑦ 组装 VO
+        // 批量查每个订单的任务统计（总数 + 已定稿数）
+        Map<Long, int[]> taskStats = batchLoadTaskStats(
+                page.stream().map(Order::getId).toList());
+
         List<OrderListItemVO> voList = page.stream()
-                .map(o -> buildListItemVO(o, designerNames.get(o.getDesignerId())))
+                .map(o -> {
+                    OrderListItemVO vo = buildListItemVO(o, designerNames.get(o.getDesignerId()));
+                    int[] stats = taskStats.getOrDefault(o.getId(), new int[]{0, 0});
+                    vo.setTaskCount(stats[0]);
+                    vo.setApprovedTaskCount(stats[1]);
+                    return vo;
+                })
                 .toList();
 
         return new CursorPage<>(voList, nextCursor, hasMore);
     }
 
     // ========================================================================
-    // 【2】getOrderDetail — API.md §3.3 订单详情（聚合子实体）
+    // 【2】订单详情
     // ========================================================================
     @Override
     public OrderDetailVO getOrderDetail(Long orderId, Long userId, String userRole) {
-        // ① 查订单 → 不存在抛异常
         Order order = findOrderOrThrow(orderId);
-
-        // ② 数据范围校验（非创建人 / 非设计人 / 非 BL → 拒绝）
         checkDataScope(order, userId, userRole);
 
-        // ③ 查关联数据（批量联表，避免 N+1）
         User designer = order.getDesignerId() != null ? userMapper.selectById(order.getDesignerId()) : null;
         User creator = order.getCreatedBy() != null ? userMapper.selectById(order.getCreatedBy()) : null;
 
@@ -161,8 +193,7 @@ public class OrderServiceImpl implements OrderService {
                         .eq(OrderFeedback::getOrderId, orderId)
                         .orderByAsc(OrderFeedback::getSubmittedAt)
         );
-        // feedback 的 submitter 姓名 + version 的 uploader 姓名批量查
-        // 注：Stream.concat 是静态方法，两个 stream 均为有限流，顺序无关（只取 id 集合）
+
         Map<Long, String> allUserNames = batchLoadUserNames(
                 Stream.concat(
                                 feedbacks.stream().map(OrderFeedback::getSubmittedBy),
@@ -171,81 +202,120 @@ public class OrderServiceImpl implements OrderService {
                         .filter(id -> id != null).distinct().toList()
         );
 
-        // ④ 组装 OrderDetailVO（敏感字段不返回）
-        return buildDetailVO(order, designer, creator, refFiles, versions, feedbacks, allUserNames);
+        // 物料任务列表
+        List<OrderTaskVO> tasks = orderTaskService.listTasks(orderId, userId, userRole);
+
+        // 操作历史
+        List<OperationLogVO> logs = listOperationLogs(orderId, userId, userRole);
+
+        // 任务统计
+        int taskCount = tasks.size();
+        int approvedCount = (int) tasks.stream()
+                .filter(t -> OrderStatus.APPROVED.getCode().equals(t.getStatus()))
+                .count();
+
+        OrderDetailVO vo = buildDetailVO(order, designer, creator, refFiles, versions, feedbacks, allUserNames);
+        vo.setTasks(tasks);
+        vo.setOperationLogs(logs);
+        vo.setTaskCount(taskCount);
+        vo.setApprovedTaskCount(approvedCount);
+        return vo;
     }
 
     // ========================================================================
-    // 【3】createOrder — API.md §3.2 创建订单（WAIT_CREATE → CREATED）
+    // 【3】创建订单
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OrderCreateResponseVO createOrder(OrderCreateRequest dto, Long creatorId) {
-        // ① 生成订单编号 ORD-YYYY-NNNNN（查当前年最大编号 + 1）
         String orderNo = generateOrderNo();
 
-        // ② 组装 Order 实体（状态 CREATED，创建人 creatorId）
         Order order = new Order();
         order.setOrderNo(orderNo);
-        order.setCustomerName(StringEscapeUtils.escapeHtml4(dto.getCustomerName()));    // XSS 清洗
+        order.setCustomerName(StringEscapeUtils.escapeHtml4(dto.getCustomerName()));
         order.setContactName(StringEscapeUtils.escapeHtml4(dto.getContactName()));
-        order.setContactPhone(dto.getContactPhone());                                    // 手机号已用 @Pattern 校验
-        order.setMaterialType(dto.getMaterialType());
-        order.setQuantity(dto.getQuantity());
-        order.setSpecification(StringEscapeUtils.escapeHtml4(dto.getSpecification()));
+        order.setContactPhone(dto.getContactPhone());
         order.setDeliveryDate(dto.getDeliveryDate());
         order.setRemark(dto.getRemark() != null ? StringEscapeUtils.escapeHtml4(dto.getRemark()) : null);
         order.setStatus(OrderStatus.CREATED.getCode());
         order.setCreatedBy(creatorId);
         order.setArchived(0);
-        order.setVersion(0);   // 乐观锁初值
+        order.setVersion(0);
 
-        // ③ insert
+        // 兼容旧版：如果传了单物料字段，自动生成一个任务
+        if (dto.getTasks() == null || dto.getTasks().isEmpty()) {
+            if (dto.getMaterialType() != null && dto.getQuantity() != null && dto.getSpecification() != null) {
+                order.setMaterialType(dto.getMaterialType());
+                order.setQuantity(dto.getQuantity());
+                order.setSpecification(dto.getSpecification());
+            } else {
+                throw new BusinessException(ErrorCode.PARAM_VALIDATION_ERROR, "物料任务列表不能为空");
+            }
+        } else {
+            // 多物料：第一个物料作为订单主信息的冗余
+            TaskCreateItem first = dto.getTasks().get(0);
+            order.setMaterialType(first.getMaterialType());
+            order.setQuantity(first.getQuantity());
+            order.setSpecification(first.getSpecification());
+        }
+
         orderMapper.insert(order);
 
-        // ④ 保存参考文件（同事务）
+        // 批量创建物料任务
+        if (dto.getTasks() != null && !dto.getTasks().isEmpty()) {
+            orderTaskService.batchCreateTasks(order.getId(), dto.getTasks(), creatorId);
+        } else if (dto.getMaterialType() != null) {
+            // 旧版单物料兼容
+            TaskCreateItem item = new TaskCreateItem();
+            item.setMaterialType(dto.getMaterialType());
+            item.setQuantity(dto.getQuantity());
+            item.setSpecification(dto.getSpecification());
+            item.setDeadline(dto.getDeliveryDate());
+            item.setRemark(dto.getRemark());
+            orderTaskService.batchCreateTasks(order.getId(), Collections.singletonList(item), creatorId);
+        }
+
+        // 参考文件
         if (dto.getReferenceFileIds() != null && !dto.getReferenceFileIds().isEmpty()) {
             for (String fileId : dto.getReferenceFileIds()) {
                 OrderReferenceFile ref = new OrderReferenceFile();
                 ref.setOrderId(order.getId());
-                ref.setFileId(fileId);  // 占位，presign 接口返回的 fileId
+                ref.setFileId(fileId);
                 ref.setUploadedBy(creatorId);
                 orderReferenceFileMapper.insert(ref);
             }
         }
 
+        // 操作日志
+        opLog.logOrder(order.getId(), OperationType.ORDER_CREATE,
+                "创建订单：" + order.getCustomerName(),
+                creatorId, null, null);
+
         return buildCreateResponse(order);
     }
 
     // ========================================================================
-    // 【4】updateOrder — API.md §3.4 编辑订单（仅 CREATED 状态可编辑）
+    // 【4】编辑订单（仅 CREATED 状态可编辑订单基本信息）
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OrderCreateResponseVO updateOrder(Long orderId, OrderUpdateRequest dto, Long operatorId) {
-        // ① 查订单 + 存在性校验
         Order order = findOrderOrThrow(orderId);
-
-        // ② 状态校验：仅 CREATED 可编辑
         checkStatus(order, OrderStatus.CREATED, "编辑订单");
 
-        // ③ 数据范围：AM 只能编辑自己创建的
-        if (UserRole.AM.getCode().equals(getUserRole(operatorId))) {
+        String role = getUserRole(operatorId);
+        if (UserRole.AM.getCode().equals(role)) {
             if (!operatorId.equals(order.getCreatedBy())) {
                 throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权编辑他人订单");
             }
         }
 
-        // ④ 乐观锁校验
+        checkNotArchived(order);
         checkVersion(order, dto.getVersion());
 
-        // ⑤ 更新字段（XSS 清洗）
         order.setCustomerName(StringEscapeUtils.escapeHtml4(dto.getCustomerName()));
         order.setContactName(StringEscapeUtils.escapeHtml4(dto.getContactName()));
         order.setContactPhone(dto.getContactPhone());
-        order.setMaterialType(dto.getMaterialType());
-        order.setQuantity(dto.getQuantity());
-        order.setSpecification(StringEscapeUtils.escapeHtml4(dto.getSpecification()));
         order.setDeliveryDate(dto.getDeliveryDate());
         order.setRemark(dto.getRemark() != null ? StringEscapeUtils.escapeHtml4(dto.getRemark()) : null);
 
@@ -254,25 +324,25 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
         }
 
+        opLog.logOrder(orderId, OperationType.ORDER_EDIT,
+                "编辑订单基本信息",
+                operatorId, null, null);
+
         return buildCreateResponse(order);
     }
 
     // ========================================================================
-    // 【5】assignOrder — API.md §3.5 分派设计人员（CREATED → ASSIGNED）
+    // 【5】分派设计人员（订单级 → 兼容旧版单物料）
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OrderAssignResponseVO assignOrder(Long orderId, OrderAssignRequest dto, Long operatorId) {
-        // ① 查订单
         Order order = findOrderOrThrow(orderId);
-
-        // ② 状态校验：仅 CREATED 可分派
         checkStatus(order, OrderStatus.CREATED, "分派设计");
-
-        // ③ 权限校验：仅 BL 可分派
         requireRole(operatorId, UserRole.BL.getCode());
+        checkNotArchived(order);
+        checkVersion(order, dto.getVersion());
 
-        // ④ 校验目标用户存在 + 是 DS 角色
         User designer = userMapper.selectById(dto.getDesignerId());
         if (designer == null) {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND, "设计人员不存在");
@@ -281,190 +351,243 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorCode.DESIGNER_ROLE_INVALID, "目标用户不是设计人员角色");
         }
 
-        // ⑤ 乐观锁校验
-        checkVersion(order, dto.getVersion());
+        // 旧版兼容：订单级分派 = 分派给所有 CREATED 状态的任务
+        List<OrderTask> tasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>()
+                        .eq(OrderTask::getOrderId, orderId)
+                        .eq(OrderTask::getStatus, OrderStatus.CREATED.getCode())
+        );
 
-        // ⑥ 执行分派：更新状态 + 设计人 + 分派人 + 分派时间
-        order.setStatus(OrderStatus.ASSIGNED.getCode());
+        if (tasks.isEmpty()) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT, "没有可分派的物料任务");
+        }
+
+        // 全部任务分派给同一设计师
+        for (OrderTask task : tasks) {
+            task.setStatus(OrderStatus.ASSIGNED.getCode());
+            task.setDesignerId(dto.getDesignerId());
+            task.setAssignedBy(operatorId);
+            task.setAssignedAt(LocalDateTime.now());
+            orderTaskMapper.updateById(task);
+        }
+
+        // 更新订单冗余字段
         order.setDesignerId(dto.getDesignerId());
         order.setAssignedBy(operatorId);
         order.setAssignedAt(LocalDateTime.now());
+        order.setStatus(OrderStatus.ASSIGNED.getCode());
+        orderMapper.updateById(order);
 
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
-        }
+        opLog.logOrder(orderId, OperationType.TASK_ASSIGN,
+                "分派所有物料任务给：" + designer.getName(),
+                operatorId, null, null);
 
-        return buildAssignResponse(order, designer);
-    }
-
-    // ========================================================================
-    // 【6】acceptTask — API.md §3.6 设计师接单（ASSIGNED → DESIGNING）
-    // ========================================================================
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public OrderStatusUpdateResponseVO acceptTask(Long orderId, VersionOnlyRequest dto, Long designerId) {
-        // ① 查订单
-        Order order = findOrderOrThrow(orderId);
-
-        // ② 状态校验：仅 ASSIGNED 可接单
-        checkStatus(order, OrderStatus.ASSIGNED, "设计师接单");
-
-        // ③ 权限校验：仅分派给自己的设计师可接单
-        if (!designerId.equals(order.getDesignerId())) {
-            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "该订单未分派给您");
-        }
-        requireRole(designerId, UserRole.DS.getCode());
-
-        // ④ 乐观锁校验
-        checkVersion(order, dto.getVersion());
-
-        // ⑤ 状态推进
-        order.setStatus(OrderStatus.DESIGNING.getCode());
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
-        }
-
-        return buildStatusResponse(order);
-    }
-
-    // ========================================================================
-    // 【7】rejectDesign — API.md §3.7 驳回设计稿（WAIT_APPROVE → DESIGNING + 自动 Feedback）
-    // ========================================================================
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public OrderRejectResponseVO rejectDesign(Long orderId, OrderRejectRequest dto, Long operatorId) {
-        // ① 查订单
-        Order order = findOrderOrThrow(orderId);
-
-        // ② 状态校验：仅 WAIT_APPROVE 可驳回
-        checkStatus(order, OrderStatus.WAIT_APPROVE, "驳回设计");
-
-        // ③ 权限校验：仅 BL 可驳回
-        requireRole(operatorId, UserRole.BL.getCode());
-
-        // ④ 乐观锁校验
-        checkVersion(order, dto.getVersion());
-
-        // ⑤ 更新订单状态
-        order.setStatus(OrderStatus.DESIGNING.getCode());
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改");
-        }
-
-        // ⑥ 自动创建一条 PENDING 状态的修改意见（驳回原因作为意见内容）
-        OrderFeedback feedback = new OrderFeedback();
-        feedback.setOrderId(order.getId());
-        feedback.setVersionId(order.getFinalVersionId());  // 驳回针对最近上传的版本
-        feedback.setContent(StringEscapeUtils.escapeHtml4(dto.getRejectNote()));
-        feedback.setStatus(FeedbackStatus.PENDING.getCode());
-        feedback.setSubmittedBy(operatorId);
-        feedback.setSubmittedAt(LocalDateTime.now());
-        orderFeedbackMapper.insert(feedback);
-
-        // ⑦ 组装响应
-        OrderRejectResponseVO resp = new OrderRejectResponseVO();
+        OrderAssignResponseVO resp = new OrderAssignResponseVO();
         resp.setId(order.getId());
         resp.setStatus(order.getStatus());
-        resp.setFeedbackId(feedback.getId());
+        resp.setDesignerId(designer.getId());
+        resp.setDesignerName(designer.getName());
+        resp.setAssignedAt(order.getAssignedAt());
         resp.setVersion(order.getVersion());
         return resp;
     }
 
     // ========================================================================
-    // 【8】approveFinal — API.md §3.8 确认终稿（WAIT_APPROVE → APPROVED + 标记 final）
+    // 【6】设计师接单（订单级 → 兼容旧版）
+    // ========================================================================
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderStatusUpdateResponseVO acceptTask(Long orderId, VersionOnlyRequest dto, Long designerId) {
+        Order order = findOrderOrThrow(orderId);
+        checkStatus(order, OrderStatus.ASSIGNED, "设计师接单");
+
+        if (!designerId.equals(order.getDesignerId())) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "该订单未分派给您");
+        }
+        requireRole(designerId, UserRole.DS.getCode());
+
+        checkNotArchived(order);
+        checkVersion(order, dto.getVersion());
+
+        // 接单 = 所有 ASSIGNED 且分派给自己的任务进入 DESIGNING
+        List<OrderTask> tasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>()
+                        .eq(OrderTask::getOrderId, orderId)
+                        .eq(OrderTask::getStatus, OrderStatus.ASSIGNED.getCode())
+                        .eq(OrderTask::getDesignerId, designerId)
+        );
+
+        for (OrderTask task : tasks) {
+            task.setStatus(OrderStatus.DESIGNING.getCode());
+            orderTaskMapper.updateById(task);
+        }
+
+        order.setStatus(OrderStatus.DESIGNING.getCode());
+        orderMapper.updateById(order);
+
+        return buildStatusResponse(order);
+    }
+
+    // ========================================================================
+    // 【7】驳回设计稿（订单级兼容）
+    // ========================================================================
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderRejectResponseVO rejectDesign(Long orderId, OrderRejectRequest dto, Long operatorId) {
+        Order order = findOrderOrThrow(orderId);
+        checkStatus(order, OrderStatus.WAIT_APPROVE, "驳回设计");
+        requireRole(operatorId, UserRole.BL.getCode());
+        checkNotArchived(order);
+        checkVersion(order, dto.getVersion());
+
+        // 驳回所有 WAIT_APPROVE 状态的任务
+        List<OrderTask> tasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>()
+                        .eq(OrderTask::getOrderId, orderId)
+                        .eq(OrderTask::getStatus, OrderStatus.WAIT_APPROVE.getCode())
+        );
+
+        Long firstFeedbackId = null;
+        for (OrderTask task : tasks) {
+            task.setStatus(OrderStatus.DESIGNING.getCode());
+            orderTaskMapper.updateById(task);
+
+            // 每个任务各创建一条 feedback
+            DesignVersion latest = designVersionMapper.selectOne(
+                    new LambdaQueryWrapper<DesignVersion>()
+                            .eq(DesignVersion::getTaskId, task.getId())
+                            .orderByDesc(DesignVersion::getId)
+                            .last("LIMIT 1")
+            );
+
+            OrderFeedback feedback = new OrderFeedback();
+            feedback.setOrderId(orderId);
+            feedback.setTaskId(task.getId());
+            feedback.setVersionId(latest != null ? latest.getId() : null);
+            feedback.setContent(StringEscapeUtils.escapeHtml4(dto.getRejectNote()));
+            feedback.setStatus(FeedbackStatus.PENDING.getCode());
+            feedback.setSubmittedBy(operatorId);
+            feedback.setSubmittedAt(LocalDateTime.now());
+            orderFeedbackMapper.insert(feedback);
+            if (firstFeedbackId == null) firstFeedbackId = feedback.getId();
+        }
+
+        order.setStatus(OrderStatus.DESIGNING.getCode());
+        orderMapper.updateById(order);
+
+        OrderRejectResponseVO resp = new OrderRejectResponseVO();
+        resp.setId(order.getId());
+        resp.setStatus(order.getStatus());
+        resp.setFeedbackId(firstFeedbackId);
+        resp.setVersion(order.getVersion());
+        return resp;
+    }
+
+    // ========================================================================
+    // 【8】确认终稿（订单级兼容）
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OrderApproveResponseVO approveFinal(Long orderId, OrderApproveRequest dto, Long operatorId) {
-        // ① 查订单
         Order order = findOrderOrThrow(orderId);
-
-        // ② 状态校验：仅 WAIT_APPROVE 可定稿
         checkStatus(order, OrderStatus.WAIT_APPROVE, "确认终稿");
-
-        // ③ 权限校验：仅 BL 可定稿
         requireRole(operatorId, UserRole.BL.getCode());
-
-        // ④ 乐观锁校验
+        checkNotArchived(order);
         checkVersion(order, dto.getVersion());
 
-        // ⑤ 查订单最新上传的设计稿版本（标记为 final）
-        DesignVersion latest = designVersionMapper.selectOne(
-                new LambdaQueryWrapper<DesignVersion>()
-                        .eq(DesignVersion::getOrderId, orderId)
-                        .orderByDesc(DesignVersion::getId)
-                        .last("LIMIT 1")
+        // 定稿所有 WAIT_APPROVE 任务
+        List<OrderTask> tasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>()
+                        .eq(OrderTask::getOrderId, orderId)
+                        .eq(OrderTask::getStatus, OrderStatus.WAIT_APPROVE.getCode())
         );
-        if (latest == null) {
-            throw new BusinessException(ErrorCode.DESIGN_VERSION_NOT_FOUND, "设计稿版本不存在");
-        }
-        latest.setFinalVersion(1);
-        designVersionMapper.updateById(latest);
 
-        // ⑥ 处理所有 PENDING 状态的 Feedback（置 PROCESSED + processed_at）
         LocalDateTime now = LocalDateTime.now();
-        orderFeedbackMapper.update(null,
-                new LambdaUpdateWrapper<OrderFeedback>()
-                        .eq(OrderFeedback::getOrderId, orderId)
-                        .eq(OrderFeedback::getStatus, FeedbackStatus.PENDING.getCode())
-                        .set(OrderFeedback::getStatus, FeedbackStatus.PROCESSED.getCode())
-                        .set(OrderFeedback::getProcessedAt, now)
-        );
+        Long firstFinalVersionId = null;
 
-        // ⑦ 更新订单状态 + 定稿人 + 定稿时间 + 定稿版本
+        for (OrderTask task : tasks) {
+            DesignVersion latest = designVersionMapper.selectOne(
+                    new LambdaQueryWrapper<DesignVersion>()
+                            .eq(DesignVersion::getTaskId, task.getId())
+                            .orderByDesc(DesignVersion::getId)
+                            .last("LIMIT 1")
+            );
+            if (latest != null) {
+                latest.setFinalVersion(1);
+                designVersionMapper.updateById(latest);
+                if (firstFinalVersionId == null) firstFinalVersionId = latest.getId();
+            }
+
+            task.setStatus(OrderStatus.APPROVED.getCode());
+            task.setApprovedBy(operatorId);
+            task.setApprovedAt(now);
+            task.setFinalVersionId(latest != null ? latest.getId() : null);
+            task.setApproveRemark(dto.getApproveNote() != null
+                    ? StringEscapeUtils.escapeHtml4(dto.getApproveNote()) : null);
+            orderTaskMapper.updateById(task);
+
+            // 处理该任务的 PENDING feedback
+            orderFeedbackMapper.update(null,
+                    new LambdaUpdateWrapper<OrderFeedback>()
+                            .eq(OrderFeedback::getTaskId, task.getId())
+                            .eq(OrderFeedback::getStatus, FeedbackStatus.PENDING.getCode())
+                            .set(OrderFeedback::getStatus, FeedbackStatus.PROCESSED.getCode())
+                            .set(OrderFeedback::getProcessedAt, now)
+            );
+        }
+
+        // 更新订单
         order.setStatus(OrderStatus.APPROVED.getCode());
         order.setApprovedBy(operatorId);
         order.setApprovedAt(now);
-        order.setFinalVersionId(latest.getId());
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改");
-        }
+        order.setFinalVersionId(firstFinalVersionId);
+        orderMapper.updateById(order);
 
-        // ⑧ 组装响应
         OrderApproveResponseVO resp = new OrderApproveResponseVO();
         resp.setId(order.getId());
         resp.setStatus(order.getStatus());
-        resp.setFinalVersionId(latest.getId());
+        resp.setFinalVersionId(firstFinalVersionId);
         resp.setApprovedAt(now);
         resp.setVersion(order.getVersion());
         return resp;
     }
 
     // ========================================================================
-    // 【9】markDelivered — API.md §3.9 标记交付（APPROVED → DELIVERED + 归档 archived=1）
+    // 【9】标记交付（APPROVED → DELIVERED + 归档）
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OrderDeliverResponseVO markDelivered(Long orderId, OrderDeliverRequest dto, Long operatorId) {
-        // ① 查订单
         Order order = findOrderOrThrow(orderId);
 
-        // ② 状态校验：仅 APPROVED 可交付
-        checkStatus(order, OrderStatus.APPROVED, "标记交付");
+        // 核心校验：所有物料任务必须全部定稿
+        boolean allApproved = orderTaskService.allTasksApproved(orderId);
+        if (!allApproved) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
+                    "存在未完成的物料任务，全部定稿后才能交付归档");
+        }
 
-        // ③ 权限校验：仅 BL 可交付
         requireRole(operatorId, UserRole.BL.getCode());
-
-        // ④ 乐观锁校验
+        checkNotArchived(order);
         checkVersion(order, dto.getVersion());
 
-        // ⑤ 更新订单
         LocalDateTime now = LocalDateTime.now();
         order.setStatus(OrderStatus.DELIVERED.getCode());
         order.setDeliveredBy(operatorId);
         order.setDeliveredAt(now);
-        order.setDeliverRemark(dto.getDeliverRemark());
-        order.setArchived(1);   // 自动归档（ARCH §5.3 PER-005）
+        order.setDeliverRemark(dto.getDeliverRemark() != null
+                ? StringEscapeUtils.escapeHtml4(dto.getDeliverRemark()) : null);
+        order.setArchived(1);
+
         int rows = orderMapper.updateById(order);
         if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改");
+            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
         }
 
-        // ⑥ 组装响应
+        opLog.logOrder(orderId, OperationType.ORDER_DELIVER,
+                "交付归档：" + (dto.getDeliverRemark() != null ? dto.getDeliverRemark() : ""),
+                operatorId, null, null);
+
         OrderDeliverResponseVO resp = new OrderDeliverResponseVO();
         resp.setId(order.getId());
         resp.setStatus(order.getStatus());
@@ -475,44 +598,202 @@ public class OrderServiceImpl implements OrderService {
     }
 
     // ========================================================================
-    // 【10】cancelOrder — API.md §3.10 作废订单（任意非终态 → CANCELLED）
+    // 【10】作废订单
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OrderStatusUpdateResponseVO cancelOrder(Long orderId, OrderCancelRequest dto, Long operatorId) {
-        // ① 查订单
         Order order = findOrderOrThrow(orderId);
 
-        // ② 终态拦截（DELIVERED / CANCELLED 不能再作废）
         if (OrderStatus.DELIVERED.getCode().equals(order.getStatus())
                 || OrderStatus.CANCELLED.getCode().equals(order.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT, "已交付或已作废的订单不能再作废");
         }
 
-        // ③ 权限校验：BL 可作废任意 / AM 只能作废自己创建的
         String role = getUserRole(operatorId);
         if (UserRole.AM.getCode().equals(role) && !operatorId.equals(order.getCreatedBy())) {
             throw new BusinessException(ErrorCode.PERMISSION_DENIED, "无权作废他人订单");
         }
 
-        // ④ 乐观锁校验
+        checkNotArchived(order);
         checkVersion(order, dto.getVersion());
 
-        // ⑤ 状态推进
-        order.setStatus(OrderStatus.CANCELLED.getCode());
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改");
+        // 作废所有未完成任务
+        List<OrderTask> tasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>()
+                        .eq(OrderTask::getOrderId, orderId)
+                        .ne(OrderTask::getStatus, OrderStatus.CANCELLED.getCode())
+        );
+        for (OrderTask task : tasks) {
+            task.setStatus(OrderStatus.CANCELLED.getCode());
+            orderTaskMapper.updateById(task);
         }
+
+        order.setStatus(OrderStatus.CANCELLED.getCode());
+        orderMapper.updateById(order);
+
+        opLog.logOrder(orderId, OperationType.ORDER_CANCEL,
+                "作废订单",
+                operatorId, null, null);
 
         return buildStatusResponse(order);
     }
 
     // ========================================================================
-    //  私有辅助方法 — 避免代码重复
+    // 【11】同步订单状态（由任务状态变化触发）
+    // ========================================================================
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void syncOrderStatus(Long orderId, Long operatorId) {
+        Order order = orderMapper.selectById(orderId);
+        if (order == null) return;
+
+        // 终态不回退
+        if (OrderStatus.DELIVERED.getCode().equals(order.getStatus())
+                || OrderStatus.CANCELLED.getCode().equals(order.getStatus())) {
+            return;
+        }
+
+        List<OrderTask> tasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>().eq(OrderTask::getOrderId, orderId)
+        );
+        if (tasks.isEmpty()) return;
+
+        String aggregated = aggregateStatus(tasks);
+        if (!aggregated.equals(order.getStatus())) {
+            order.setStatus(aggregated);
+            orderMapper.updateById(order);
+        }
+    }
+
+    /**
+     * 状态聚合规则（取"最远进展"）：
+     *  全部 APPROVED → APPROVED
+     *  任意 WAIT_APPROVE → WAIT_APPROVE
+     *  任意 DESIGNING → DESIGNING
+     *  任意 ASSIGNED → ASSIGNED
+     *  全部 CREATED → CREATED
+     *  （CANCELLED 任务忽略，不影响聚合）
+     */
+    private String aggregateStatus(List<OrderTask> tasks) {
+        boolean allApproved = true;
+        boolean hasWaitApprove = false;
+        boolean hasDesigning = false;
+        boolean hasAssigned = false;
+        boolean hasActive = false;
+
+        for (OrderTask task : tasks) {
+            String s = task.getStatus();
+            if (OrderStatus.CANCELLED.getCode().equals(s)) continue;
+            hasActive = true;
+
+            if (OrderStatus.APPROVED.getCode().equals(s)) {
+                // 已定稿，不影响"进行中"判断
+            } else if (OrderStatus.WAIT_APPROVE.getCode().equals(s)) {
+                hasWaitApprove = true;
+                allApproved = false;
+            } else if (OrderStatus.DESIGNING.getCode().equals(s)) {
+                hasDesigning = true;
+                allApproved = false;
+            } else if (OrderStatus.ASSIGNED.getCode().equals(s)) {
+                hasAssigned = true;
+                allApproved = false;
+            } else {
+                allApproved = false; // CREATED 或其他
+            }
+        }
+
+        if (!hasActive) return OrderStatus.CANCELLED.getCode();
+        if (allApproved) return OrderStatus.APPROVED.getCode();
+        if (hasWaitApprove) return OrderStatus.WAIT_APPROVE.getCode();
+        if (hasDesigning) return OrderStatus.DESIGNING.getCode();
+        if (hasAssigned) return OrderStatus.ASSIGNED.getCode();
+        return OrderStatus.CREATED.getCode();
+    }
+
+    // ========================================================================
+    // 【12】BL 确认物料清单
+    // ========================================================================
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void confirmOrder(Long orderId, OrderConfirmDTO dto, Long operatorId) {
+        Order order = findOrderOrThrow(orderId);
+        checkStatus(order, OrderStatus.CREATED, "确认物料清单");
+        requireRole(operatorId, UserRole.BL.getCode());
+        checkNotArchived(order);
+        checkVersion(order, dto.getVersion());
+
+        // 用新的任务列表替换原有任务（仅 CREATED 状态任务可替换）
+        // 先删除旧任务
+        List<OrderTask> oldTasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>().eq(OrderTask::getOrderId, orderId)
+        );
+        for (OrderTask t : oldTasks) {
+            orderTaskMapper.deleteById(t.getId());
+        }
+
+        // 批量创建新任务
+        orderTaskService.batchCreateTasks(orderId, dto.getTasks(), operatorId);
+
+        opLog.logOrder(orderId, OperationType.ORDER_CONFIRM,
+                "确认物料清单（共 " + dto.getTasks().size() + " 项任务）",
+                operatorId, null, null);
+
+        // 确认后状态保持 CREATED，但有操作日志记录确认动作
+    }
+
+    // ========================================================================
+    // 【13】操作历史查询
+    // ========================================================================
+    @Override
+    public List<OperationLogVO> listOperationLogs(Long orderId, Long userId, String userRole) {
+        Order order = findOrderOrThrow(orderId);
+        checkDataScope(order, userId, userRole);
+
+        List<OrderOperationLog> logs = operationLogMapper.selectList(
+                new LambdaQueryWrapper<OrderOperationLog>()
+                        .eq(OrderOperationLog::getOrderId, orderId)
+                        .orderByDesc(OrderOperationLog::getOperatedAt)
+                        .orderByDesc(OrderOperationLog::getId)
+        );
+
+        // 查 taskNo 映射
+        List<Long> taskIds = logs.stream()
+                .map(OrderOperationLog::getTaskId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        Map<Long, String> taskNoMap = new HashMap<>();
+        if (!taskIds.isEmpty()) {
+            List<OrderTask> tasks = orderTaskMapper.selectBatchIds(taskIds);
+            for (OrderTask t : tasks) {
+                taskNoMap.put(t.getId(), t.getTaskNo());
+            }
+        }
+
+        return logs.stream().map(l -> {
+            OperationLogVO vo = new OperationLogVO();
+            vo.setId(l.getId());
+            vo.setTaskId(l.getTaskId());
+            vo.setTaskNo(taskNoMap.get(l.getTaskId()));
+            vo.setOperationType(l.getOperationType());
+            OperationType ot = OperationType.of(l.getOperationType());
+            vo.setOperationTypeName(ot != null ? ot.getLabel() : l.getOperationType());
+            vo.setDescription(l.getDescription());
+            vo.setOperatorId(l.getOperatorId());
+            vo.setOperatorName(l.getOperatorName());
+            vo.setOperatorRole(l.getOperatorRole());
+            UserRole ur = UserRole.of(l.getOperatorRole());
+            vo.setOperatorRoleName(ur != null ? ur.getLabel() : l.getOperatorRole());
+            vo.setOperatedAt(l.getOperatedAt());
+            return vo;
+        }).toList();
+    }
+
+    // ========================================================================
+    //  私有辅助方法
     // ========================================================================
 
-    /** 查订单 + 不存在抛 404 */
     private Order findOrderOrThrow(Long orderId) {
         Order order = orderMapper.selectById(orderId);
         if (order == null) {
@@ -521,7 +802,6 @@ public class OrderServiceImpl implements OrderService {
         return order;
     }
 
-    /** 状态流转前置校验（当前状态 ≠ 期望值 → 抛 ORDER_STATUS_CONFLICT 422） */
     private void checkStatus(Order order, OrderStatus expected, String actionLabel) {
         if (!expected.getCode().equals(order.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
@@ -532,7 +812,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /** 乐观锁版本校验（前端 version vs DB version 不一致 → 抛 ORDER_VERSION_CONFLICT 409） */
     private void checkVersion(Order order, Integer requestVersion) {
         if (!order.getVersion().equals(requestVersion)) {
             throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
@@ -541,7 +820,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /** 角色权限校验（当前用户角色 ≠ 所需角色 → 抛 PERMISSION_DENIED 403） */
     private void requireRole(Long userId, String requiredRole) {
         String actualRole = getUserRole(userId);
         if (!requiredRole.equals(actualRole)) {
@@ -550,23 +828,20 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /** 获取用户角色（查 users 表） */
     private String getUserRole(Long userId) {
         User u = userMapper.selectById(userId);
         return u != null ? u.getRole() : null;
     }
 
-    /** 数据范围过滤（按角色加 Wrapper 条件） */
     private void applyDataScopeFilter(LambdaQueryWrapper<Order> wrapper, Long userId, String role) {
         if (UserRole.AM.getCode().equals(role)) {
-            wrapper.eq(Order::getCreatedBy, userId);    // AM：只看自己创建的
+            wrapper.eq(Order::getCreatedBy, userId);
         } else if (UserRole.DS.getCode().equals(role)) {
-            wrapper.eq(Order::getDesignerId, userId);  // DS：只看分派给自己的
+            // DS：看分派给自己任务的订单（通过 task 子查询，这里简化用 designerId 冗余字段）
+            wrapper.eq(Order::getDesignerId, userId);
         }
-        // BL：不加过滤，看全部
     }
 
-    /** 数据范围校验（详情查询） */
     private void checkDataScope(Order order, Long userId, String role) {
         if (UserRole.AM.getCode().equals(role)) {
             if (!userId.equals(order.getCreatedBy())) {
@@ -574,18 +849,29 @@ public class OrderServiceImpl implements OrderService {
             }
         } else if (UserRole.DS.getCode().equals(role)) {
             if (!userId.equals(order.getDesignerId())) {
-                throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权查看非自己的订单");
+                // 再查任务表确认
+                Long count = orderTaskMapper.selectCount(
+                        new LambdaQueryWrapper<OrderTask>()
+                                .eq(OrderTask::getOrderId, order.getId())
+                                .eq(OrderTask::getDesignerId, userId)
+                );
+                if (count == 0) {
+                    throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权查看非自己的订单");
+                }
             }
         }
-        // BL：全量访问
     }
 
-    /** Cursor 编码：Base64(id) */
+    private void checkNotArchived(Order order) {
+        if (Integer.valueOf(1).equals(order.getArchived())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT, "订单已归档，不可修改");
+        }
+    }
+
     private String encodeCursor(long lastId) {
         return Base64.getEncoder().encodeToString(String.valueOf(lastId).getBytes());
     }
 
-    /** Cursor 解码：Base64 → lastId（null / 空 → 0） */
     private long decodeCursor(String cursor) {
         if (cursor == null || cursor.isBlank()) return 0;
         try {
@@ -596,11 +882,9 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /** 订单编号生成：ORD-YYYY-NNNNN（查当前年最大编号 + 1） */
     private String generateOrderNo() {
         String year = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy"));
         String prefix = "ORD-" + year + "-";
-        // 查当前年最大编号（ORD-2026-xxxxx → 取 xxxxx 部分转 int + 1）
         List<Order> yearOrders = orderMapper.selectList(
                 new LambdaQueryWrapper<Order>().likeRight(Order::getOrderNo, prefix)
         );
@@ -617,12 +901,30 @@ public class OrderServiceImpl implements OrderService {
         return prefix + String.format("%05d", nextSeq);
     }
 
-    /** 批量查用户姓名（避免 N+1） */
     private Map<Long, String> batchLoadUserNames(List<Long> userIds) {
         if (userIds == null || userIds.isEmpty()) return Collections.emptyMap();
         List<User> users = userMapper.selectBatchIds(userIds);
         Map<Long, String> result = new HashMap<>();
         users.forEach(u -> result.put(u.getId(), u.getName()));
+        return result;
+    }
+
+    /** 批量查订单任务统计：orderId -> [taskCount, approvedCount] */
+    private Map<Long, int[]> batchLoadTaskStats(List<Long> orderIds) {
+        Map<Long, int[]> result = new HashMap<>();
+        if (orderIds == null || orderIds.isEmpty()) return result;
+
+        List<OrderTask> allTasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>().in(OrderTask::getOrderId, orderIds)
+        );
+
+        for (OrderTask t : allTasks) {
+            int[] stats = result.computeIfAbsent(t.getOrderId(), k -> new int[]{0, 0});
+            stats[0]++;
+            if (OrderStatus.APPROVED.getCode().equals(t.getStatus())) {
+                stats[1]++;
+            }
+        }
         return result;
     }
 
@@ -676,7 +978,6 @@ public class OrderServiceImpl implements OrderService {
                                         List<OrderFeedback> feedbacks,
                                         Map<Long, String> allUserNames) {
         OrderDetailVO vo = new OrderDetailVO();
-        // 主信息（敏感字段 passwordHash / is_deleted 不返回）
         vo.setId(order.getId());
         vo.setOrderNo(order.getOrderNo());
         vo.setCustomerName(order.getCustomerName());
@@ -696,7 +997,6 @@ public class OrderServiceImpl implements OrderService {
         vo.setIsArchived(Integer.valueOf(1).equals(order.getArchived()));
         vo.setVersion(order.getVersion());
 
-        // 子列表
         vo.setReferenceFiles(refFiles.stream().map(r -> {
             ReferenceFileVO rf = new ReferenceFileVO();
             rf.setId(r.getId());
@@ -707,7 +1007,7 @@ public class OrderServiceImpl implements OrderService {
         }).toList());
 
         vo.setDesignVersions(versions.stream().map(v -> {
-            com.peak.vo.DesignVersionVO dv = new com.peak.vo.DesignVersionVO();
+            DesignVersionVO dv = new DesignVersionVO();
             dv.setId(v.getId());
             dv.setVersionNo(v.getVersionNo());
             dv.setFileUrl(v.getFileUrl());
@@ -720,11 +1020,10 @@ public class OrderServiceImpl implements OrderService {
             return dv;
         }).toList());
 
-        // feedback 需关联 versionNo
         Map<Long, String> versionNoMap = versions.stream()
                 .collect(Collectors.toMap(DesignVersion::getId, DesignVersion::getVersionNo));
         vo.setFeedbacks(feedbacks.stream().map(f -> {
-            com.peak.vo.OrderFeedbackVO fb = new com.peak.vo.OrderFeedbackVO();
+            OrderFeedbackVO fb = new OrderFeedbackVO();
             fb.setId(f.getId());
             fb.setContent(f.getContent());
             fb.setStatus(f.getStatus());

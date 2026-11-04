@@ -17,4 +17,10 @@ public class OrderListItemVO {
     private LocalDate deliveryDate;
     private String designerName;
     private LocalDateTime createdAt;
+
+    /** 任务总数 */
+    private Integer taskCount;
+
+    /** 已定稿任务数 */
+    private Integer approvedTaskCount;
 }
