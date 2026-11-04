@@ -76,10 +76,6 @@ public class OrderController {
             @Parameter(description = "创建人ID过滤") @RequestParam(required = false) Long creatorId,
             @Parameter(description = "交付日期起（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateFrom,
             @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateTo,
-            @Parameter(description = "设计人员ID过滤") @RequestParam(required = false) Long designerId,
-            @Parameter(description = "创建人ID过滤") @RequestParam(required = false) Long creatorId,
-            @Parameter(description = "交付日期起（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateFrom,
-            @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateTo,
             HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         String role = (String) request.getAttribute("userRole");
