@@ -3,6 +3,7 @@ package com.peak.controller;
 import com.peak.dto.OrderApproveRequest;
 import com.peak.dto.OrderAssignRequest;
 import com.peak.dto.OrderCancelRequest;
+import com.peak.dto.OrderConfirmDTO;
 import com.peak.dto.OrderCreateRequest;
 import com.peak.dto.OrderDeliverRequest;
 import com.peak.dto.OrderRejectRequest;
@@ -18,6 +19,7 @@ import com.peak.vo.OrderDetailVO;
 import com.peak.vo.OrderListItemVO;
 import com.peak.vo.OrderRejectResponseVO;
 import com.peak.vo.OrderStatusUpdateResponseVO;
+import com.peak.vo.OperationLogVO;
 import com.peak.vo.ResultVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -70,10 +72,14 @@ public class OrderController {
             @Parameter(description = "物料类型过滤") @RequestParam(required = false) String materialType,
             @Parameter(description = "状态过滤") @RequestParam(required = false) String status,
             @Parameter(description = "关键字（订单号/客户名称）") @RequestParam(required = false) String keyword,
+            @Parameter(description = "设计人员ID过滤") @RequestParam(required = false) Long designerId,
+            @Parameter(description = "创建人ID过滤") @RequestParam(required = false) Long creatorId,
+            @Parameter(description = "交付日期起（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateFrom,
+            @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateTo,
             HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         String role = (String) request.getAttribute("userRole");
-        return ResultVO.success(orderService.listOrders(userId, role, cursor, limit, materialType, status, keyword));
+        return ResultVO.success(orderService.listOrders(userId, role, cursor, limit, materialType, status, keyword, designerId, creatorId, deliveryDateFrom, deliveryDateTo));
     }
 
     /**
@@ -205,5 +211,32 @@ public class OrderController {
                                                              HttpServletRequest request) {
         Long operatorId = (Long) request.getAttribute("userId");
         return ResultVO.success(orderService.cancelOrder(id, dto, operatorId));
+    }
+
+    /**
+     * 确认物料清单 — BL 确认订单物料清单和截止时间
+     * PUT /api/v1/orders/{id}/confirm
+     */
+    @PutMapping("/{id}/confirm")
+    @Operation(summary = "确认物料清单（BL确认后订单进入可分派状态）")
+    public ResultVO<Void> confirmOrder(@PathVariable Long id,
+                                        @Valid @RequestBody OrderConfirmDTO dto,
+                                        HttpServletRequest request) {
+        Long operatorId = (Long) request.getAttribute("userId");
+        orderService.confirmOrder(id, dto, operatorId);
+        return ResultVO.success(null);
+    }
+
+    /**
+     * 订单操作历史
+     * GET /api/v1/orders/{id}/logs
+     */
+    @GetMapping("/{id}/logs")
+    @Operation(summary = "查询订单操作历史")
+    public ResultVO<java.util.List<OperationLogVO>> listOperationLogs(@PathVariable Long id,
+                                                                        HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        String role = (String) request.getAttribute("userRole");
+        return ResultVO.success(orderService.listOperationLogs(id, userId, role));
     }
 }

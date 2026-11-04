@@ -1,350 +1,270 @@
 package com.peak.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.peak.common.constants.ErrorCode;
-import com.peak.common.enums.FeedbackStatus;
+import com.peak.common.enums.MaterialType;
+import com.peak.common.enums.OperationType;
 import com.peak.common.enums.OrderStatus;
 import com.peak.common.enums.UserRole;
-import com.peak.dto.ArchiveOrderDTO;
-import com.peak.dto.FinalAuditDTO;
-import com.peak.entity.DesignVersion;
 import com.peak.entity.Order;
-import com.peak.entity.OrderFeedback;
+import com.peak.entity.OrderOperationLog;
+import com.peak.entity.OrderTask;
 import com.peak.entity.User;
 import com.peak.exception.BusinessException;
-import com.peak.mapper.DesignVersionMapper;
-import com.peak.mapper.OrderFeedbackMapper;
 import com.peak.mapper.OrderMapper;
+import com.peak.mapper.OrderOperationLogMapper;
+import com.peak.mapper.OrderTaskMapper;
 import com.peak.mapper.UserMapper;
 import com.peak.service.FinalAuditService;
-import com.peak.vo.ArchiveOrderResponseVO;
-import com.peak.vo.FinalAuditResponseVO;
-import com.peak.vo.OrderAuditInfoVO;
+import com.peak.vo.CursorPage;
+import com.peak.vo.OperationLogVO;
+import com.peak.vo.OrderTaskVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.text.StringEscapeUtils;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * 定稿审核与交付归档服务实现 — C 模块 M5 + M6
+ * 定稿审核服务实现 — C 模块（审核域）
  *
- * <p>状态流转说明：
- *  - confirmFinal: WAIT_APPROVE → APPROVED（定稿）
- *  - rejectFinal:  WAIT_APPROVE → DESIGNING（驳回，回退到设计中）
- *  - archiveOrder: APPROVED → DELIVERED + archived=1（交付归档，归档后只读）
- *
- * <p>所有状态变更均通过 updateById 触发 MyBatis-Plus 乐观锁（@Version 注解），
- * 版本不匹配时更新行数为 0 → 抛出 ORDER_VERSION_CONFLICT (409)。
- *
- * <p>模块边界遵守：
- *  - 不修改 A 模块（OrderServiceImpl 等）代码
- *  - 不修改 B 模块（认证、权限基础设施）代码
- *  - 不修改 D 模块（设计版本、反馈意见）代码
- *  - 不修改枚举类
- *  - 复用已有 Mapper、实体、错误码、枚举
+ * <p>专注审核视角的查询，不重复 A 模块的写操作。
+ * 定稿 / 驳回的写操作由 OrderTaskService（任务级）和 OrderService（订单级）处理。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FinalAuditServiceImpl implements FinalAuditService {
 
+    private final OrderTaskMapper orderTaskMapper;
     private final OrderMapper orderMapper;
     private final UserMapper userMapper;
-    private final DesignVersionMapper designVersionMapper;
-    private final OrderFeedbackMapper orderFeedbackMapper;
+    private final OrderOperationLogMapper operationLogMapper;
 
     // ========================================================================
-    // 【1】confirmFinal — 确认定稿（WAIT_APPROVE → APPROVED）
+    // 【1】待审核任务列表（我的待办）
     // ========================================================================
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public FinalAuditResponseVO confirmFinal(Long orderId, FinalAuditDTO dto, Long operatorId) {
-        // ① 查订单 + 存在性校验
-        Order order = findOrderOrThrow(orderId);
+    public CursorPage<OrderTaskVO> listPendingTasks(Long userId, String userRole,
+                                                     String cursor, int limit,
+                                                     String materialType, String keyword) {
+        long lastId = decodeCursor(cursor);
+        int effectiveLimit = Math.min(Math.max(limit, 1), 100);
 
-        // ② 归档只读校验：已归档订单不允许任何修改操作
-        checkNotArchived(order, "确认定稿");
+        LambdaQueryWrapper<OrderTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.gt(OrderTask::getId, lastId);
+        wrapper.eq(OrderTask::getStatus, OrderStatus.WAIT_APPROVE.getCode());
+        wrapper.orderByDesc(OrderTask::getUpdatedAt);
+        wrapper.orderByDesc(OrderTask::getId);
+        wrapper.last("LIMIT " + (effectiveLimit + 1));
 
-        // ③ 状态校验：仅 WAIT_APPROVE 可确认定稿
-        checkStatus(order, OrderStatus.WAIT_APPROVE, "确认定稿");
+        // 数据范围
+        if (UserRole.AM.getCode().equals(userRole)) {
+            // AM：只能看自己创建的订单下的待审核任务
+            List<Long> myOrderIds = orderMapper.selectList(
+                    new LambdaQueryWrapper<Order>()
+                            .eq(Order::getCreatedBy, userId)
+                            .select(Order::getId)
+            ).stream().map(Order::getId).collect(Collectors.toList());
 
-        // ④ 权限校验：业务负责人(BL) 或 客户经理(AM) 可操作
-        requireAnyRole(operatorId, UserRole.BL.getCode(), UserRole.AM.getCode());
+            if (myOrderIds.isEmpty()) {
+                return new CursorPage<>(Collections.emptyList(), null, false);
+            }
+            wrapper.in(OrderTask::getOrderId, myOrderIds);
+        } else if (UserRole.DS.getCode().equals(userRole)) {
+            // DS：看不到待审核列表（不是审核角色）
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "设计人员无审核权限");
+        }
+        // BL：看全部
 
-        // ⑤ 前置校验：必须有设计版本才能定稿
-        DesignVersion latest = designVersionMapper.selectOne(
-                new LambdaQueryWrapper<DesignVersion>()
-                        .eq(DesignVersion::getOrderId, orderId)
-                        .orderByDesc(DesignVersion::getId)
-                        .last("LIMIT 1")
+        // 过滤条件
+        if (materialType != null && !materialType.isBlank()) {
+            wrapper.eq(OrderTask::getMaterialType, materialType);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
+            // 按任务编号或规格模糊搜
+            wrapper.and(w -> w.like(OrderTask::getTaskNo, safeKeyword)
+                    .or().like(OrderTask::getSpecification, safeKeyword));
+        }
+
+        List<OrderTask> all = orderTaskMapper.selectList(wrapper);
+        boolean hasMore = all.size() > effectiveLimit;
+        List<OrderTask> page = hasMore ? all.subList(0, effectiveLimit) : all;
+        String nextCursor = hasMore ? encodeCursor(page.get(page.size() - 1).getId()) : null;
+
+        // 批量查设计师姓名 + 订单号
+        Map<Long, String> designerNames = batchLoadUserNames(
+                page.stream().map(OrderTask::getDesignerId).filter(id -> id != null).distinct().toList());
+
+        List<Long> orderIds = page.stream().map(OrderTask::getOrderId).distinct().toList();
+        Map<Long, String> orderNoMap = new HashMap<>();
+        if (!orderIds.isEmpty()) {
+            List<Order> orders = orderMapper.selectBatchIds(orderIds);
+            for (Order o : orders) {
+                orderNoMap.put(o.getId(), o.getOrderNo());
+            }
+        }
+
+        List<OrderTaskVO> voList = page.stream().map(t -> {
+            OrderTaskVO vo = new OrderTaskVO();
+            vo.setId(t.getId());
+            vo.setTaskNo(t.getTaskNo());
+            vo.setMaterialType(t.getMaterialType());
+            MaterialType mt = MaterialType.of(t.getMaterialType());
+            vo.setMaterialTypeName(mt != null ? mt.getLabel() : t.getMaterialType());
+            vo.setQuantity(t.getQuantity());
+            vo.setSpecification(t.getSpecification());
+            vo.setUsageDesc(t.getUsageDesc());
+            vo.setDeadline(t.getDeadline());
+            vo.setStatus(t.getStatus());
+            OrderStatus s = OrderStatus.of(t.getStatus());
+            vo.setStatusName(s != null ? s.getLabel() : t.getStatus());
+            vo.setDesignerId(t.getDesignerId());
+            vo.setDesignerName(designerNames.get(t.getDesignerId()));
+            vo.setSortOrder(t.getSortOrder());
+            vo.setVersion(t.getVersion());
+            vo.setCreatedAt(t.getCreatedAt());
+            return vo;
+        }).toList();
+
+        return new CursorPage<>(voList, nextCursor, hasMore);
+    }
+
+    // ========================================================================
+    // 【2】我参与的审核记录
+    // ========================================================================
+    @Override
+    public List<OperationLogVO> listMyAuditLogs(Long userId, String userRole, int limit) {
+        int effectiveLimit = Math.min(Math.max(limit, 1), 100);
+
+        // 审核相关操作类型
+        List<String> auditTypes = List.of(
+                OperationType.TASK_APPROVE.getCode(),
+                OperationType.TASK_REJECT.getCode(),
+                OperationType.ORDER_CONFIRM.getCode(),
+                OperationType.ORDER_DELIVER.getCode()
         );
-        if (latest == null) {
-            throw new BusinessException(ErrorCode.DESIGN_VERSION_NOT_FOUND, "尚未上传设计稿，无法定稿");
-        }
 
-        // ⑥ 乐观锁版本校验
-        checkVersion(order, dto.getVersion());
-
-        // ⑦ 标记最新版本为 final
-        latest.setFinalVersion(1);
-        designVersionMapper.updateById(latest);
-
-        // ⑧ 将所有 PENDING 状态的 Feedback 置为 PROCESSED（定稿后意见全部处理完毕）
-        LocalDateTime now = LocalDateTime.now();
-        orderFeedbackMapper.update(null,
-                new LambdaUpdateWrapper<OrderFeedback>()
-                        .eq(OrderFeedback::getOrderId, orderId)
-                        .eq(OrderFeedback::getStatus, FeedbackStatus.PENDING.getCode())
-                        .set(OrderFeedback::getStatus, FeedbackStatus.PROCESSED.getCode())
-                        .set(OrderFeedback::getProcessedAt, now)
+        List<OrderOperationLog> logs = operationLogMapper.selectList(
+                new LambdaQueryWrapper<OrderOperationLog>()
+                        .eq(OrderOperationLog::getOperatorId, userId)
+                        .in(OrderOperationLog::getOperationType, auditTypes)
+                        .orderByDesc(OrderOperationLog::getOperatedAt)
+                        .orderByDesc(OrderOperationLog::getId)
+                        .last("LIMIT " + effectiveLimit)
         );
 
-        // ⑨ 更新订单：状态 → APPROVED + 定稿人 + 定稿时间 + 定稿版本ID
-        order.setStatus(OrderStatus.APPROVED.getCode());
-        order.setApprovedBy(operatorId);
-        order.setApprovedAt(now);
-        order.setFinalVersionId(latest.getId());
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
+        // 查 taskNo
+        List<Long> taskIds = logs.stream()
+                .map(OrderOperationLog::getTaskId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        Map<Long, String> taskNoMap = new HashMap<>();
+        if (!taskIds.isEmpty()) {
+            List<OrderTask> tasks = orderTaskMapper.selectBatchIds(taskIds);
+            for (OrderTask t : tasks) {
+                taskNoMap.put(t.getId(), t.getTaskNo());
+            }
         }
 
-        // ⑩ 组装响应
-        User operator = userMapper.selectById(operatorId);
-        FinalAuditResponseVO resp = new FinalAuditResponseVO();
-        resp.setId(order.getId());
-        resp.setOrderNo(order.getOrderNo());
-        resp.setStatus(order.getStatus());
-        resp.setVersion(order.getVersion());
-        resp.setApprovedBy(operatorId);
-        resp.setApprovedByName(operator != null ? operator.getName() : null);
-        resp.setApprovedAt(now);
-        resp.setFinalVersionId(latest.getId());
-        resp.setFinalVersionNo(latest.getVersionNo());
-        return resp;
+        return logs.stream().map(l -> buildLogVO(l, taskNoMap)).toList();
     }
 
     // ========================================================================
-    // 【2】rejectFinal — 驳回定稿（WAIT_APPROVE → DESIGNING）
+    // 【3】按订单查审核记录
     // ========================================================================
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public FinalAuditResponseVO rejectFinal(Long orderId, FinalAuditDTO dto, Long operatorId) {
-        // ① 查订单 + 存在性校验
-        Order order = findOrderOrThrow(orderId);
-
-        // ② 归档只读校验
-        checkNotArchived(order, "驳回定稿");
-
-        // ③ 状态校验：仅 WAIT_APPROVE 可驳回
-        checkStatus(order, OrderStatus.WAIT_APPROVE, "驳回定稿");
-
-        // ④ 权限校验：业务负责人(BL) 或 客户经理(AM) 可操作
-        requireAnyRole(operatorId, UserRole.BL.getCode(), UserRole.AM.getCode());
-
-        // ⑤ 乐观锁版本校验
-        checkVersion(order, dto.getVersion());
-
-        // ⑥ 查询当前最新设计版本（用于关联驳回意见）
-        DesignVersion latest = designVersionMapper.selectOne(
-                new LambdaQueryWrapper<DesignVersion>()
-                        .eq(DesignVersion::getOrderId, orderId)
-                        .orderByDesc(DesignVersion::getId)
-                        .last("LIMIT 1")
-        );
-        if (latest == null) {
-            throw new BusinessException(ErrorCode.DESIGN_VERSION_NOT_FOUND, "订单下无设计版本，无法驳回");
-        }
-
-        // ⑦ 更新订单状态 → DESIGNING（驳回后设计师继续修改）
-        order.setStatus(OrderStatus.DESIGNING.getCode());
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
-        }
-
-        // ⑧ 记录驳回意见到 order_feedbacks（复用已有表，与 A 模块 rejectDesign 模式一致）
-        LocalDateTime now = LocalDateTime.now();
-        OrderFeedback feedback = new OrderFeedback();
-        feedback.setOrderId(order.getId());
-        feedback.setVersionId(latest.getId());
-        feedback.setContent(dto.getRemark() != null
-                ? StringEscapeUtils.escapeHtml4(dto.getRemark())
-                : "驳回定稿");
-        feedback.setStatus(FeedbackStatus.PENDING.getCode());
-        feedback.setSubmittedBy(operatorId);
-        feedback.setSubmittedAt(now);
-        orderFeedbackMapper.insert(feedback);
-
-        // ⑧ 组装响应
-        FinalAuditResponseVO resp = new FinalAuditResponseVO();
-        resp.setId(order.getId());
-        resp.setOrderNo(order.getOrderNo());
-        resp.setStatus(order.getStatus());
-        resp.setVersion(order.getVersion());
-        return resp;
-    }
-
-    // ========================================================================
-    // 【3】archiveOrder — 订单交付归档（APPROVED → DELIVERED + archived=1）
-    // ========================================================================
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public ArchiveOrderResponseVO archiveOrder(Long orderId, ArchiveOrderDTO dto, Long operatorId) {
-        // ① 查订单 + 存在性校验
-        Order order = findOrderOrThrow(orderId);
-
-        // ② 已归档拦截：不能重复归档
-        if (Integer.valueOf(1).equals(order.getArchived())) {
-            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT, "订单已归档，不可重复操作");
-        }
-
-        // ③ 状态校验：仅 APPROVED（已定稿）可归档
-        checkStatus(order, OrderStatus.APPROVED, "交付归档");
-
-        // ④ 权限校验：仅业务负责人(BL) 可归档
-        requireRole(operatorId, UserRole.BL.getCode());
-
-        // ⑤ 乐观锁版本校验
-        checkVersion(order, dto.getVersion());
-
-        // ⑥ 更新订单：状态 → DELIVERED + 归档人 + 归档时间 + 归档备注 + archived=1
-        LocalDateTime now = LocalDateTime.now();
-        order.setStatus(OrderStatus.DELIVERED.getCode());
-        order.setDeliveredBy(operatorId);
-        order.setDeliveredAt(now);
-        order.setDeliverRemark(dto.getRemark() != null
-                ? StringEscapeUtils.escapeHtml4(dto.getRemark())
-                : null);
-        order.setArchived(1);
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
-        }
-
-        // ⑦ 组装响应
-        User operator = userMapper.selectById(operatorId);
-        ArchiveOrderResponseVO resp = new ArchiveOrderResponseVO();
-        resp.setId(order.getId());
-        resp.setOrderNo(order.getOrderNo());
-        resp.setStatus(order.getStatus());
-        resp.setVersion(order.getVersion());
-        resp.setIsArchived(true);
-        resp.setArchivedBy(operatorId);
-        resp.setArchivedByName(operator != null ? operator.getName() : null);
-        resp.setArchivedAt(now);
-        resp.setArchiveRemark(order.getDeliverRemark());
-        return resp;
-    }
-
-    // ========================================================================
-    // 【4】getAuditInfo — 查询订单定稿归档信息（配套查询）
-    // ========================================================================
-    @Override
-    public OrderAuditInfoVO getAuditInfo(Long orderId) {
-        Order order = findOrderOrThrow(orderId);
-
-        OrderAuditInfoVO vo = new OrderAuditInfoVO();
-
-        // 定稿信息
-        boolean approved = OrderStatus.APPROVED.getCode().equals(order.getStatus())
-                || OrderStatus.DELIVERED.getCode().equals(order.getStatus());
-        vo.setIsApproved(approved);
-        if (order.getApprovedBy() != null) {
-            vo.setApprovedBy(order.getApprovedBy());
-            User approver = userMapper.selectById(order.getApprovedBy());
-            vo.setApprovedByName(approver != null ? approver.getName() : null);
-            vo.setApprovedAt(order.getApprovedAt());
-        }
-        if (order.getFinalVersionId() != null) {
-            vo.setFinalVersionId(order.getFinalVersionId());
-            DesignVersion fv = designVersionMapper.selectById(order.getFinalVersionId());
-            vo.setFinalVersionNo(fv != null ? fv.getVersionNo() : null);
-        }
-
-        // 归档信息
-        vo.setIsArchived(Integer.valueOf(1).equals(order.getArchived()));
-        if (order.getDeliveredBy() != null) {
-            vo.setArchivedBy(order.getDeliveredBy());
-            User archiver = userMapper.selectById(order.getDeliveredBy());
-            vo.setArchivedByName(archiver != null ? archiver.getName() : null);
-            vo.setArchivedAt(order.getDeliveredAt());
-            vo.setArchiveRemark(order.getDeliverRemark());
-        }
-
-        return vo;
-    }
-
-    // ========================================================================
-    //  私有辅助方法
-    // ========================================================================
-
-    /** 查订单，不存在抛 ORDER_NOT_FOUND */
-    private Order findOrderOrThrow(Long orderId) {
+    public List<OperationLogVO> listAuditLogsByOrder(Long orderId, Long userId, String userRole) {
+        // 校验订单存在 + 数据范围
         Order order = orderMapper.selectById(orderId);
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在");
         }
-        return order;
-    }
-
-    /** 归档只读校验：已归档订单拒绝所有修改操作 */
-    private void checkNotArchived(Order order, String actionLabel) {
-        if (Integer.valueOf(1).equals(order.getArchived())) {
-            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "订单已归档，不允许" + actionLabel + "操作");
+        if (UserRole.AM.getCode().equals(userRole) && !userId.equals(order.getCreatedBy())) {
+            throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权查看他人订单");
         }
-    }
 
-    /** 状态前置校验：当前状态 ≠ 期望值 → 抛 ORDER_STATUS_CONFLICT */
-    private void checkStatus(Order order, OrderStatus expected, String actionLabel) {
-        if (!expected.getCode().equals(order.getStatus())) {
-            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "当前订单状态为 [%s]，%s 需要状态为 [%s]",
-                    OrderStatus.of(order.getStatus()) != null
-                            ? OrderStatus.of(order.getStatus()).getLabel()
-                            : order.getStatus(),
-                    actionLabel,
-                    expected.getLabel());
-        }
-    }
+        List<String> auditTypes = List.of(
+                OperationType.TASK_APPROVE.getCode(),
+                OperationType.TASK_REJECT.getCode(),
+                OperationType.ORDER_CONFIRM.getCode(),
+                OperationType.ORDER_DELIVER.getCode()
+        );
 
-    /** 乐观锁版本校验 */
-    private void checkVersion(Order order, Integer requestVersion) {
-        if (!order.getVersion().equals(requestVersion)) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
-                    "数据已变更，请刷新后重试（当前版本 %d，请求版本 %d）",
-                    order.getVersion(), requestVersion);
-        }
-    }
+        List<OrderOperationLog> logs = operationLogMapper.selectList(
+                new LambdaQueryWrapper<OrderOperationLog>()
+                        .eq(OrderOperationLog::getOrderId, orderId)
+                        .in(OrderOperationLog::getOperationType, auditTypes)
+                        .orderByDesc(OrderOperationLog::getOperatedAt)
+                        .orderByDesc(OrderOperationLog::getId)
+        );
 
-    /** 角色权限校验：当前用户必须是指定角色之一 */
-    private void requireAnyRole(Long userId, String... roles) {
-        String actualRole = getUserRole(userId);
-        for (String role : roles) {
-            if (role.equals(actualRole)) {
-                return;
+        List<Long> taskIds = logs.stream()
+                .map(OrderOperationLog::getTaskId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        Map<Long, String> taskNoMap = new HashMap<>();
+        if (!taskIds.isEmpty()) {
+            List<OrderTask> tasks = orderTaskMapper.selectBatchIds(taskIds);
+            for (OrderTask t : tasks) {
+                taskNoMap.put(t.getId(), t.getTaskNo());
             }
         }
-        throw new BusinessException(ErrorCode.PERMISSION_DENIED, "无权限执行该操作");
+
+        return logs.stream().map(l -> buildLogVO(l, taskNoMap)).toList();
     }
 
-    /** 角色权限校验：当前用户必须是指定角色 */
-    private void requireRole(Long userId, String requiredRole) {
-        String actualRole = getUserRole(userId);
-        if (!requiredRole.equals(actualRole)) {
-            throw new BusinessException(ErrorCode.PERMISSION_DENIED,
-                    "需要 %s 角色才能执行该操作", UserRole.of(requiredRole).getLabel());
+    // ========================================================================
+    //  私有辅助
+    // ========================================================================
+
+    private OperationLogVO buildLogVO(OrderOperationLog log, Map<Long, String> taskNoMap) {
+        OperationLogVO vo = new OperationLogVO();
+        vo.setId(log.getId());
+        vo.setTaskId(log.getTaskId());
+        vo.setTaskNo(taskNoMap.get(log.getTaskId()));
+        vo.setOperationType(log.getOperationType());
+        OperationType ot = OperationType.of(log.getOperationType());
+        vo.setOperationTypeName(ot != null ? ot.getLabel() : log.getOperationType());
+        vo.setDescription(log.getDescription());
+        vo.setOperatorId(log.getOperatorId());
+        vo.setOperatorName(log.getOperatorName());
+        vo.setOperatorRole(log.getOperatorRole());
+        UserRole ur = UserRole.of(log.getOperatorRole());
+        vo.setOperatorRoleName(ur != null ? ur.getLabel() : log.getOperatorRole());
+        vo.setOperatedAt(log.getOperatedAt());
+        return vo;
+    }
+
+    private Map<Long, String> batchLoadUserNames(List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) return Collections.emptyMap();
+        List<User> users = userMapper.selectBatchIds(userIds);
+        Map<Long, String> result = new HashMap<>();
+        users.forEach(u -> result.put(u.getId(), u.getName()));
+        return result;
+    }
+
+    private String encodeCursor(long lastId) {
+        return Base64.getEncoder().encodeToString(String.valueOf(lastId).getBytes());
+    }
+
+    private long decodeCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) return 0;
+        try {
+            return Long.parseLong(new String(Base64.getDecoder().decode(cursor)));
+        } catch (Exception e) {
+            log.warn("Cursor 解码失败：{}", cursor);
+            return 0;
         }
-    }
-
-    /** 获取用户角色 */
-    private String getUserRole(Long userId) {
-        User u = userMapper.selectById(userId);
-        return u != null ? u.getRole() : null;
     }
 }

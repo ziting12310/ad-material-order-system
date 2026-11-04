@@ -30,8 +30,10 @@ public class OrderReferenceFile {
     /** 关联订单ID（FK → orders.id） */
     private Long orderId;
 
-    /** 任务ID（多物料占位；当前无 tasks 表，默认取 orderId） */
+    /** 关联物料任务ID（FK -> order_tasks.id：多物料模型下必填） */
     private Long taskId;
+
+   
 
     /**
      * OSS 对象 Key

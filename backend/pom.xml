@@ -63,6 +63,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- AOP：@RequireRole 权限切面 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- ORM：MyBatis-Plus（CRUD / 乐观锁 / 逻辑删除 / 分页） -->
         <dependency>
             <groupId>com.baomidou</groupId>

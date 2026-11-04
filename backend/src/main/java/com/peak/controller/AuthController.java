@@ -1,5 +1,6 @@
 package com.peak.controller;
 
+import com.peak.common.context.UserContext;
 import com.peak.dto.LoginRequest;
 import com.peak.service.AuthService;
 import com.peak.vo.LoginResponseVO;
@@ -7,7 +8,6 @@ import com.peak.vo.ResultVO;
 import com.peak.vo.UserInfoVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -75,9 +75,8 @@ public class AuthController {
      * </pre></p>
      */
     @GetMapping("/userinfo")
-    @Operation(summary = "获取当前登录用户信息", description = "读取 JWT 拦截器注入的 userId，返回用户信息与角色，供前端菜单鉴权使用")
-    public ResultVO<UserInfoVO> getUserInfo(HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        return ResultVO.success(authService.getUserInfo(userId));
+    @Operation(summary = "获取当前登录用户信息", description = "读取 UserContext 中的 userId，返回用户信息与角色，供前端菜单鉴权使用")
+    public ResultVO<UserInfoVO> getUserInfo() {
+        return ResultVO.success(authService.getUserInfo(UserContext.getUserId()));
     }
 }

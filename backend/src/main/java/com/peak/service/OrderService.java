@@ -4,6 +4,7 @@ import com.peak.dto.OrderApproveRequest;
 import com.peak.dto.OrderAssignRequest;
 import com.peak.dto.OrderCancelRequest;
 import com.peak.dto.OrderCreateRequest;
+import com.peak.dto.OrderConfirmDTO;
 import com.peak.dto.OrderDeliverRequest;
 import com.peak.dto.OrderRejectRequest;
 import com.peak.dto.OrderUpdateRequest;
@@ -14,6 +15,7 @@ import com.peak.vo.OrderApproveResponseVO;
 import com.peak.vo.OrderCreateResponseVO;
 import com.peak.vo.OrderDeliverResponseVO;
 import com.peak.vo.OrderDetailVO;
+import com.peak.vo.OperationLogVO;
 import com.peak.vo.OrderListItemVO;
 import com.peak.vo.OrderRejectResponseVO;
 import com.peak.vo.OrderStatusUpdateResponseVO;
@@ -48,7 +50,9 @@ public interface OrderService {
      */
     CursorPage<OrderListItemVO> listOrders(Long userId, String userRole,
                                            String cursor, int limit,
-                                           String materialType, String status, String keyword);
+                                           String materialType, String status, String keyword,
+                                           Long designerId, Long creatorId,
+                                           String deliveryDateFrom, String deliveryDateTo);
 
     /**
      * 订单详情（含参考文件 / 设计稿版本 / 修改意见聚合）— API.md §3.3 GetOrder
@@ -81,4 +85,21 @@ public interface OrderService {
 
     /** 作废订单 — API.md §3.10 CancelOrder；任意非终态 → CANCELLED（T-10） */
     OrderStatusUpdateResponseVO cancelOrder(Long orderId, OrderCancelRequest dto, Long operatorId);
+
+    // ---------- 多物料模型新增 ----------
+
+    /**
+     * 同步订单状态（根据所有任务状态聚合）
+     * 由 OrderTaskServiceImpl 在任务状态变化后调用
+     */
+    void syncOrderStatus(Long orderId, Long operatorId);
+
+    /**
+     * BL 确认物料清单和截止时间
+     * 确认后订单进入 CONFIRMED 状态，后续变更必须留操作日志
+     */
+    void confirmOrder(Long orderId, OrderConfirmDTO dto, Long operatorId);
+
+    /** 查询订单操作历史 */
+    java.util.List<OperationLogVO> listOperationLogs(Long orderId, Long userId, String userRole);
 }

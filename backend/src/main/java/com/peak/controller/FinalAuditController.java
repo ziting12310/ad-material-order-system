@@ -1,105 +1,83 @@
 package com.peak.controller;
 
-import com.peak.dto.ArchiveOrderDTO;
-import com.peak.dto.FinalAuditDTO;
 import com.peak.service.FinalAuditService;
-import com.peak.vo.ArchiveOrderResponseVO;
-import com.peak.vo.FinalAuditResponseVO;
-import com.peak.vo.OrderAuditInfoVO;
+import com.peak.vo.CursorPage;
+import com.peak.vo.OperationLogVO;
+import com.peak.vo.OrderTaskVO;
 import com.peak.vo.ResultVO;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
- * 定稿审核与交付归档控制器 — C 模块 M5 + M6
+ * 定稿审核控制器 — C 模块（审核域）
  *
- * <p>BaseURL：/api/v1/final-audit
- * 职责：定稿审核（确认/驳回）+ 订单交付归档 + 定稿归档信息查询
- *
- * <p>当前用户 userId / role 从 JWT 拦截器注入的 request.setAttribute 中读取。
- * 权限校验在 Service 层完成（复用 UserRole 枚举 + 已有的 RBAC 角色体系）。
- *
- * <p>模块边界：本 Controller 仅处理定稿审核与交付归档业务。
- * 文件上传、设计版本管理、客户反馈意见属于 D 模块，不在此处处理。</p>
+ * <p>BaseURL：/api/v1/audit
+ * 提供审核工作台视角的查询能力：待审核列表、审核记录等。
+ * 定稿/驳回的写操作由 OrderTaskController（任务级）和 OrderController（订单级）处理。
  */
 @RestController
-@RequestMapping("/v1/final-audit")
+@RequestMapping("/v1/audit")
 @RequiredArgsConstructor
-@Tag(name = "定稿审核与交付归档", description = "M5 定稿审核 + M6 交付归档（C 模块）")
+@Tag(name = "定稿审核", description = "审核工作台：待办列表、审核记录")
 public class FinalAuditController {
 
     private final FinalAuditService finalAuditService;
 
     /**
-     * 确认定稿 — WAIT_APPROVE → APPROVED
-     * POST /api/v1/final-audit/orders/{id}/confirm
+     * 待审核任务列表（我的待办）
+     * GET /api/v1/audit/pending?cursor=&limit=20
      *
-     * <p>权限：业务负责人(BL) / 客户经理(AM)
-     * <p>前置条件：订单状态为待定稿，且已上传设计版本
+     * <p>BL 看到所有待审核任务；AM 看到自己订单下的待审核任务；DS 无权限。
      */
-    @PostMapping("/orders/{id}/confirm")
-    @Operation(summary = "确认定稿（待定稿 → 已定稿）")
-    public ResultVO<FinalAuditResponseVO> confirmFinal(
-            @PathVariable Long id,
-            @Valid @RequestBody FinalAuditDTO dto,
+    @GetMapping("/pending")
+    @Operation(summary = "待审核任务列表（我的待办）")
+    public ResultVO<CursorPage<OrderTaskVO>> listPendingTasks(
+            @Parameter(description = "游标") @RequestParam(required = false) String cursor,
+            @Parameter(description = "每页数量，默认20") @RequestParam(defaultValue = "20") int limit,
+            @Parameter(description = "物料类型过滤") @RequestParam(required = false) String materialType,
+            @Parameter(description = "关键字（任务编号/规格）") @RequestParam(required = false) String keyword,
             HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
-        return ResultVO.success(finalAuditService.confirmFinal(id, dto, operatorId));
+        Long userId = (Long) request.getAttribute("userId");
+        String role = (String) request.getAttribute("userRole");
+        return ResultVO.success(finalAuditService.listPendingTasks(
+                userId, role, cursor, limit, materialType, keyword));
     }
 
     /**
-     * 驳回定稿 — WAIT_APPROVE → DESIGNING
-     * POST /api/v1/final-audit/orders/{id}/reject
-     *
-     * <p>权限：业务负责人(BL) / 客户经理(AM)
-     * <p>驳回后订单回退为设计中，设计师可继续上传新版本
+     * 我参与的审核记录
+     * GET /api/v1/audit/my-logs?limit=20
      */
-    @PostMapping("/orders/{id}/reject")
-    @Operation(summary = "驳回定稿（待定稿 → 设计中）")
-    public ResultVO<FinalAuditResponseVO> rejectFinal(
-            @PathVariable Long id,
-            @Valid @RequestBody FinalAuditDTO dto,
+    @GetMapping("/my-logs")
+    @Operation(summary = "我参与的审核记录")
+    public ResultVO<List<OperationLogVO>> listMyAuditLogs(
+            @Parameter(description = "数量，默认20，最大100") @RequestParam(defaultValue = "20") int limit,
             HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
-        return ResultVO.success(finalAuditService.rejectFinal(id, dto, operatorId));
+        Long userId = (Long) request.getAttribute("userId");
+        String role = (String) request.getAttribute("userRole");
+        return ResultVO.success(finalAuditService.listMyAuditLogs(userId, role, limit));
     }
 
     /**
-     * 订单交付归档 — APPROVED → DELIVERED + archived=1
-     * POST /api/v1/final-audit/orders/{id}/archive
-     *
-     * <p>权限：仅业务负责人(BL)
-     * <p>归档后订单变为只读，后续所有修改操作（定稿、驳回、上传版本、提交意见）均被拒绝
+     * 订单审核记录
+     * GET /api/v1/audit/orders/{orderId}/logs
      */
-    @PostMapping("/orders/{id}/archive")
-    @Operation(summary = "交付归档（已定稿 → 已交付 + 归档）")
-    public ResultVO<ArchiveOrderResponseVO> archiveOrder(
-            @PathVariable Long id,
-            @Valid @RequestBody ArchiveOrderDTO dto,
+    @GetMapping("/orders/{orderId}/logs")
+    @Operation(summary = "查询订单的审核记录")
+    public ResultVO<List<OperationLogVO>> listAuditLogsByOrder(
+            @PathVariable Long orderId,
             HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
-        return ResultVO.success(finalAuditService.archiveOrder(id, dto, operatorId));
-    }
-
-    /**
-     * 查询订单定稿归档信息
-     * GET /api/v1/final-audit/orders/{id}
-     *
-     * <p>用于订单详情页展示定稿记录、归档记录
-     * <p>权限：所有登录用户（数据范围由前端订单列表控制）
-     */
-    @GetMapping("/orders/{id}")
-    @Operation(summary = "查询订单定稿归档信息")
-    public ResultVO<OrderAuditInfoVO> getAuditInfo(@PathVariable Long id) {
-        return ResultVO.success(finalAuditService.getAuditInfo(id));
+        Long userId = (Long) request.getAttribute("userId");
+        String role = (String) request.getAttribute("userRole");
+        return ResultVO.success(finalAuditService.listAuditLogsByOrder(orderId, userId, role));
     }
 }
