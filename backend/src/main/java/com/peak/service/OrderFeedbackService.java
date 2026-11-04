@@ -2,6 +2,9 @@ package com.peak.service;
 
 import com.peak.dto.OrderFeedbackCreateRequest;
 import com.peak.vo.OrderFeedbackResponseVO;
+import com.peak.vo.OrderFeedbackVO;
+
+import java.util.List;
 
 /**
  * 修改意见服务接口 — API.md §5.1 SubmitFeedback
@@ -23,4 +26,7 @@ public interface OrderFeedbackService {
      * </p>
      */
     OrderFeedbackResponseVO submitFeedback(OrderFeedbackCreateRequest dto, Long submitterId);
+
+    /** 按订单 / 任务查询修改意见列表 */
+    List<OrderFeedbackVO> listFeedbacks(Long orderId, Long taskId, Long userId, String userRole);
 }

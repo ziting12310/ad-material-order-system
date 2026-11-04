@@ -32,6 +32,9 @@ public class DesignVersion {
     /** 关联订单ID（FK → orders.id） */
     private Long orderId;
 
+    /** 任务ID（多物料占位；当前无 tasks 表，默认取 orderId） */
+    private Long taskId;
+
     /** 版本号（V1/V2/V3... 字符串递增；ServiceImpl.generateNextVersionNo 自动生成） */
     private String versionNo;
 

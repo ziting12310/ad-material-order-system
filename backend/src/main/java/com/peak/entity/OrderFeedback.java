@@ -25,6 +25,9 @@ public class OrderFeedback {
     /** 关联订单ID（FK → orders.id） */
     private Long orderId;
 
+    /** 任务ID（多物料占位；当前无 tasks 表，默认取 orderId） */
+    private Long taskId;
+
     /** 关联设计稿版本ID（FK → design_versions.id） */
     private Long versionId;
 

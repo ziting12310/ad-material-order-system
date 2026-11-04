@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 @Data
 public class OrderFeedbackResponseVO {
     private Long id;
+    private Long taskId;
     private String content;
     private String status;
     private Long versionId;

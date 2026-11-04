@@ -1,7 +1,11 @@
 package com.peak.service;
 
 import com.peak.dto.DesignVersionCreateRequest;
+import com.peak.vo.DesignVersionDiffVO;
 import com.peak.vo.DesignVersionResponseVO;
+import com.peak.vo.DesignVersionVO;
+
+import java.util.List;
 
 /**
  * 设计稿版本服务接口 — API.md §4.1 UploadFirstDesign / UploadNewVersion
@@ -24,4 +28,11 @@ public interface DesignVersionService {
      * </p>
      */
     DesignVersionResponseVO uploadDesignVersion(DesignVersionCreateRequest dto, Long uploaderId);
+
+    /** 版本历史列表（按版本号数字升序，V2 在 V10 前） */
+    List<DesignVersionVO> listVersions(Long orderId, Long taskId, Long userId, String userRole);
+
+    /** 两个版本的文件信息对比（MVP 只返回文件 URL，不做像素级 diff） */
+    DesignVersionDiffVO diffVersions(Long orderId, Long taskId, Integer v1, Integer v2,
+                                     Long userId, String userRole);
 }

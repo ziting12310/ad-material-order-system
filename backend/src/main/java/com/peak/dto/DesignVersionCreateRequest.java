@@ -12,6 +12,8 @@ public class DesignVersionCreateRequest {
     /** 关联订单 ID */
     @NotNull(message = "orderId 不能为空")
     private Long orderId;
+    /** 任务 ID（多物料占位；为空时默认取 orderId） */
+    private Long taskId;
     /** 设计稿文件 ID（presign 接口返回） */
     @NotBlank(message = "fileId 不能为空")
     private String fileId;

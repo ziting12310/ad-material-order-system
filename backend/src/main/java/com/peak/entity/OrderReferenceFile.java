@@ -30,6 +30,9 @@ public class OrderReferenceFile {
     /** 关联订单ID（FK → orders.id） */
     private Long orderId;
 
+    /** 任务ID（多物料占位；当前无 tasks 表，默认取 orderId） */
+    private Long taskId;
+
     /**
      * OSS 对象 Key
      * presign 接口返回，前端直传 OSS 后作为业务定位标识；

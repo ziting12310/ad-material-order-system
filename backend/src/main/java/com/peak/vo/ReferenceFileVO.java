@@ -6,6 +6,8 @@ import lombok.Data;
 @Data
 public class ReferenceFileVO {
     private Long id;
+    private Long taskId;
+    private String fileId;
     private String fileUrl;
     private String fileName;
     private Long fileSize;

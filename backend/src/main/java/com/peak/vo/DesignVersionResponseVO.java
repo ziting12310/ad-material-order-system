@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 @Data
 public class DesignVersionResponseVO {
     private Long id;
+    private Long taskId;
     private String versionNo;
     private String fileUrl;
     private String fileName;
