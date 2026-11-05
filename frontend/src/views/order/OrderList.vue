@@ -151,8 +151,9 @@
             >
               编辑
             </el-button>
+            <!-- BL（项目负责人）可删除 CREATED 状态订单；AM（客户经理）仅查看/编辑 -->
             <el-button
-              v-if="isAM && row.status === 'CREATED'"
+              v-if="isBL && row.status === 'CREATED'"
               type="danger"
               link
               size="small"
@@ -284,9 +285,9 @@ const hasFilters = computed(() => {
 
 // 操作列宽度
 const actionColWidth = computed(() => {
-  if (isAM.value) return 240
-  if (isBL.value) return 180
-  return 120
+  if (isAM.value) return 180   // AM：查看 + 编辑（无分派/删除）
+  if (isBL.value) return 240   // BL：查看 + 分派 + 删除
+  return 120                   // DS / 其他：查看
 })
 
 // 空状态文案

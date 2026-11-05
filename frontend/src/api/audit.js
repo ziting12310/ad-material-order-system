@@ -21,6 +21,30 @@ export function listPendingTasks(params) {
 }
 
 /**
+ * 已定稿任务列表（APPROVED / DELIVERED 状态）
+ * GET /api/v1/audit/approved
+ */
+export function listApprovedTasks(params) {
+    return request.get('/audit/approved', { params, silent: true })
+}
+
+/**
+ * 已驳回任务列表（最近一次审核操作为 TASK_REJECT，后续无 TASK_APPROVE）
+ * GET /api/v1/audit/rejected
+ */
+export function listRejectedTasks(params) {
+    return request.get('/audit/rejected', { params, silent: true })
+}
+
+/**
+ * 审核统计：待审核 / 已定稿 / 驳回次数
+ * GET /api/v1/audit/stats
+ */
+export function getAuditStats() {
+    return request.get('/audit/stats', { silent: true })
+}
+
+/**
  * 我参与的审核记录
  * GET /api/v1/audit/my-logs
  */

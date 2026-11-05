@@ -334,13 +334,13 @@ async function fetchStats() {
   statsLoading.value = true
   try {
     if (isDS.value) {
-      // DS：通过 listOrders 按 designerId + 各状态查询 total
-      const designerId = userStore.userInfo?.id
+      // DS：后端 applyDataScopeFilter 已自动按任务级 designer_id 过滤可见订单，
+      // 不再手动传 designerId 避免互斥
       const [assignedRes, designingRes, waitRes, approvedRes] = await Promise.all([
-        listOrders({ designerId, status: 'ASSIGNED', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ designerId, status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ designerId, status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ designerId, status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
+        listOrders({ status: 'ASSIGNED', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
       ])
       stats.pendingAccept = assignedRes.total || 0
       stats.designing = designingRes.total || 0
@@ -377,9 +377,8 @@ async function fetchRecent() {
   recentLoading.value = true
   try {
     if (isDS.value) {
-      // DS：最近5条我的任务（从订单列表中扁平化提取任务）
-      const designerId = userStore.userInfo?.id
-      const res = await listOrders({ designerId, limit: 10 })
+      // DS：后端 applyDataScopeFilter 已自动按任务级 designer_id 过滤
+      const res = await listOrders({ limit: 10 })
       const orders = res.list || []
       const tasks = []
       orders.forEach(order => {

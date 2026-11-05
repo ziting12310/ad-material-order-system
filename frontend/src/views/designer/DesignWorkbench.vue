@@ -392,7 +392,7 @@ import {
   Clock,
   CircleCheckFilled
 } from '@element-plus/icons-vue'
-import { listOrders, acceptTask, uploadDesignVersion, assignTask, listDesigners } from '@/api'
+import { listOrders, acceptTask, uploadDesignVersion, assignTask, assignOrder, getOrderDetail, listDesigners } from '@/api'
 import { listMyAuditLogs } from '@/api/audit'
 import {
   MATERIAL_OPTIONS,
@@ -554,15 +554,11 @@ async function fetchTaskList(isLoadMore = false) {
       limit: PAGE_SIZE
     }
 
-    // DS：只看我的任务（按 designerId 过滤）
-    // BL：看全部任务（不过滤 designerId）
-    if (!isBL.value) {
-      const designerId = userStore.userInfo?.id
-      if (!designerId) {
-        throw new Error('未获取到用户信息')
-      }
-      params.designerId = designerId
-    }
+    // 后端 applyDataScopeFilter 已按角色自动过滤：
+    //   DS → 只含其任务 designer_id = 当前用户 的订单集合（任务级过滤，正确）
+    //   BL → 全部订单
+    //   AM → 仅自己创建的订单
+    // 不再手动传 designerId，避免后端 applyOrderFilters 用订单级 orders.designer_id（任务级分派下为 NULL）做二次过滤导致 DS 查不到数据
 
     if (isLoadMore && nextCursor.value) {
       params.cursor = nextCursor.value
@@ -643,9 +639,24 @@ async function handleAccept(row) {
     return
   }
 
+  const orderId = row.orderId || row.id
   try {
-    // 接单接口（需要 orderId 和 taskId）
-    await acceptTask(row.orderId || row.id, row.id !== row.orderId ? row.id : row.id, 1)
+    // 行数据是订单级兜底（无 task.version），先拉订单详情，找分派给我的待接单任务
+    const detail = await getOrderDetail(orderId)
+    const myTasks = (detail.tasks || []).filter(
+      t => t.status === 'ASSIGNED' && t.designerId === userStore.userInfo?.id
+    )
+    if (myTasks.length === 0) {
+      ElMessage.warning('该订单下没有分派给我的待接单任务')
+      return
+    }
+    for (const t of myTasks) {
+      if (t.version == null) {
+        ElMessage.error(`任务 ${t.taskNo || t.id} 缺少乐观锁 version，无法接单，请刷新重试`)
+        return
+      }
+      await acceptTask(orderId, t.id, t.version)
+    }
     ElMessage.success('接单成功')
     // 刷新列表和统计
     nextCursor.value = null
@@ -681,14 +692,49 @@ async function handleSubmitVersion() {
     ElMessage.warning('请上传设计文件')
     return
   }
+  if (!uploadForm.description || !uploadForm.description.trim()) {
+    ElMessage.warning('请输入版本说明')
+    return
+  }
 
+  const orderId = uploadDialog.row?.orderId || uploadDialog.row?.id
   uploadDialog.loading = true
   try {
-    const orderId = uploadDialog.row?.orderId || uploadDialog.row?.id
-    await uploadDesignVersion(orderId, {
-      description: uploadForm.description,
-      files: uploadForm.files
-    })
+    // 行数据是订单级兜底（无 task.version），先拉订单详情，找我名下"设计中"的任务
+    const detail = await getOrderDetail(orderId)
+    const myTasks = (detail.tasks || []).filter(
+      t => t.status === 'DESIGNING' && t.designerId === userStore.userInfo?.id
+    )
+    if (myTasks.length === 0) {
+      ElMessage.warning('该订单下没有进行中（设计中）的任务')
+      return
+    }
+    const task = myTasks[0]
+    if (task.version == null) {
+      ElMessage.error('任务缺少乐观锁 version，无法上传版本，请刷新重试')
+      return
+    }
+
+    // 后端为单文件接口（POST /design-versions），逐个文件提交，fileType 取扩展名
+    const ALLOWED = ['psd', 'ai', 'jpg', 'png', 'pdf', 'webp']
+    for (const f of uploadForm.files) {
+      const fileName = f.fileName || f.name
+      const ext = (String(fileName).split('.').pop() || '').toLowerCase()
+      if (!ALLOWED.includes(ext)) {
+        ElMessage.error(`文件 ${fileName} 格式不支持（仅限 psd/ai/jpg/png/pdf/webp）`)
+        return
+      }
+      await uploadDesignVersion({
+        orderId,
+        taskId: task.id,
+        fileId: f.fileId,
+        fileName,
+        fileSize: f.fileSize || f.size,
+        fileType: ext,
+        versionNote: uploadForm.description.trim(),
+        version: task.version
+      })
+    }
     ElMessage.success('版本提交成功')
     uploadDialog.visible = false
     // 刷新列表
@@ -717,7 +763,9 @@ function handleViewDetail(row) {
 const assignDialog = reactive({
   visible: false,
   loading: false,
-  row: null
+  row: null,
+  tasks: [],          // 打开弹窗时从订单详情缓存的完整任务列表（含乐观锁 version）
+  orderVersion: null  // 订单本体乐观锁（无任务订单走订单级分派时使用）
 })
 const assignFormRef = ref(null)
 const assignForm = reactive({
@@ -744,12 +792,29 @@ async function fetchDesigners() {
   }
 }
 
-function handleAssign(row) {
+async function handleAssign(row) {
   assignDialog.row = row
   assignForm.designerId = null
   assignForm.remark = ''
+  assignDialog.tasks = []
+  assignDialog.orderVersion = null
+  assignDialog.loading = true
+  try {
+    // 打开弹窗前拉订单详情，缓存完整任务列表（含乐观锁 version）
+    const detail = await getOrderDetail(row.orderId || row.id)
+    if (detail?.version == null) {
+      ElMessage.error('订单详情未返回乐观锁 version，无法分派，请检查后端 OrderDetailVO')
+      return
+    }
+    assignDialog.orderVersion = detail.version
+    assignDialog.tasks = detail.tasks || []
+  } catch (e) {
+    ElMessage.error('加载订单详情失败，请重试')
+    return
+  } finally {
+    assignDialog.loading = false
+  }
   assignDialog.visible = true
-  assignDialog.loading = false
   if (designerList.value.length === 0) {
     fetchDesigners()
   }
@@ -763,14 +828,39 @@ async function handleAssignSubmit() {
     const row = assignDialog.row
     if (!row) return
 
+    // 提交前校验乐观锁 version 已随弹窗缓存
+    const tasks = assignDialog.tasks || []
+    if (tasks.length > 0) {
+      const missing = tasks.find(t => t.version == null)
+      if (missing) {
+        ElMessage.error(`任务 ${missing.taskNo || missing.id} 缺少乐观锁 version，请刷新后重试`)
+        return
+      }
+    } else if (assignDialog.orderVersion == null) {
+      ElMessage.error('订单缺少乐观锁 version，请刷新后重试')
+      return
+    }
+
     assignDialog.loading = true
     try {
       const orderId = row.orderId || row.id
-      const taskId = row.id !== row.orderId ? row.id : row.id
-      await assignTask(orderId, taskId, {
-        designerId: assignForm.designerId,
-        remark: assignForm.remark
-      })
+      if (tasks.length > 0) {
+        // 任务级分派：逐个分派，每个任务带自己的乐观锁 version
+        await Promise.all(tasks.map(t =>
+          assignTask(orderId, t.id, {
+            designerId: assignForm.designerId,
+            assignRemark: assignForm.remark,
+            version: t.version
+          })
+        ))
+      } else {
+        // 无任务订单：走订单级分派接口，携带订单乐观锁 version
+        await assignOrder(orderId, {
+          designerId: assignForm.designerId,
+          assignRemark: assignForm.remark,
+          version: assignDialog.orderVersion
+        })
+      }
       ElMessage.success('分派成功')
       assignDialog.visible = false
       nextCursor.value = null

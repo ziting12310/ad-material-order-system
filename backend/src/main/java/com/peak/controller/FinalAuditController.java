@@ -71,6 +71,72 @@ public class FinalAuditController {
     }
 
     /**
+     * 已定稿任务列表（APPROVED / DELIVERED 状态）
+     * GET /api/v1/audit/approved?cursor=&limit=20
+     */
+    @GetMapping("/approved")
+    @Operation(summary = "已定稿任务列表")
+    public ResultVO<CursorPage<OrderTaskVO>> listApprovedTasks(
+            @Parameter(description = "游标") @RequestParam(required = false) String cursor,
+            @Parameter(description = "每页数量，默认20") @RequestParam(defaultValue = "20") int limit,
+            @Parameter(description = "物料类型过滤") @RequestParam(required = false) String materialType,
+            @Parameter(description = "关键字（任务编号/规格）") @RequestParam(required = false) String keyword,
+            HttpServletRequest request) {
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
+        return ResultVO.success(finalAuditService.listApprovedTasks(
+                userId, role, cursor, limit, materialType, keyword));
+    }
+
+    /**
+     * 已定稿任务数量
+     * GET /api/v1/audit/approved/count
+     */
+    @GetMapping("/approved/count")
+    @Operation(summary = "已定稿任务数量")
+    public ResultVO<Long> countApprovedTasks(
+            @RequestParam(required = false) String materialType,
+            @RequestParam(required = false) String keyword,
+            HttpServletRequest request) {
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
+        return ResultVO.success(finalAuditService.countApprovedTasks(userId, role, materialType, keyword));
+    }
+
+    /**
+     * 已驳回任务列表（最近一次审核操作为 TASK_REJECT，后续无 TASK_APPROVE）
+     * GET /api/v1/audit/rejected?cursor=&limit=20
+     */
+    @GetMapping("/rejected")
+    @Operation(summary = "已驳回任务列表")
+    public ResultVO<CursorPage<OrderTaskVO>> listRejectedTasks(
+            @Parameter(description = "游标") @RequestParam(required = false) String cursor,
+            @Parameter(description = "每页数量，默认20") @RequestParam(defaultValue = "20") int limit,
+            @Parameter(description = "物料类型过滤") @RequestParam(required = false) String materialType,
+            @Parameter(description = "关键字（任务编号/规格）") @RequestParam(required = false) String keyword,
+            HttpServletRequest request) {
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
+        return ResultVO.success(finalAuditService.listRejectedTasks(
+                userId, role, cursor, limit, materialType, keyword));
+    }
+
+    /**
+     * 已驳回任务数量
+     * GET /api/v1/audit/rejected/count
+     */
+    @GetMapping("/rejected/count")
+    @Operation(summary = "已驳回任务数量")
+    public ResultVO<Long> countRejectedTasks(
+            @RequestParam(required = false) String materialType,
+            @RequestParam(required = false) String keyword,
+            HttpServletRequest request) {
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
+        return ResultVO.success(finalAuditService.countRejectedTasks(userId, role, materialType, keyword));
+    }
+
+    /**
      * 审核统计：待审核 / 已定稿 / 驳回次数
      * GET /api/v1/audit/stats
      */

@@ -30,6 +30,34 @@ public interface FinalAuditService {
     long countPendingTasks(Long userId, String userRole,
                            String materialType, String keyword);
 
+    /**
+     * 已定稿任务列表（APPROVED / DELIVERED 状态）
+     *  - BL：看到所有已定稿任务
+     *  - AM：看到自己创建订单下已定稿任务
+     *  - DS：看不到
+     */
+    CursorPage<OrderTaskVO> listApprovedTasks(Long userId, String userRole,
+                                              String cursor, int limit,
+                                              String materialType, String keyword);
+
+    /** 已定稿任务数量（与 listApprovedTasks 同一数据范围与过滤条件） */
+    long countApprovedTasks(Long userId, String userRole,
+                            String materialType, String keyword);
+
+    /**
+     * 已驳回任务列表（最近一次审核操作为 TASK_REJECT，且后续无 TASK_APPROVE）
+     *  - BL：看到所有被驳回的任务
+     *  - AM：看到自己创建订单下被驳回的任务
+     *  - DS：看不到
+     */
+    CursorPage<OrderTaskVO> listRejectedTasks(Long userId, String userRole,
+                                               String cursor, int limit,
+                                               String materialType, String keyword);
+
+    /** 已驳回任务数量（与 listRejectedTasks 同一数据范围与过滤条件） */
+    long countRejectedTasks(Long userId, String userRole,
+                            String materialType, String keyword);
+
     /** 审核统计：待审核 / 已定稿 / 驳回次数（按角色数据范围） */
     com.peak.vo.AuditStatsVO getAuditStats(Long userId, String userRole);
 
