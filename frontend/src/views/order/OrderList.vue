@@ -84,7 +84,7 @@
     <el-card class="table-card" shadow="never">
       <el-table
         v-loading="loading"
-        :data="tableData"
+        :data="pagedData"
         border
         style="width: 100%"
         :header-cell-style="headerCellStyle"
@@ -131,16 +131,7 @@
         <el-table-column label="操作" :width="actionColWidth" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleView(row)">
-              查看
-            </el-button>
-            <el-button
-              v-if="row.status === 'CREATED' && isBL"
-              type="primary"
-              link
-              size="small"
-              @click="handleAssign(row)"
-            >
-              分派
+              查看详情
             </el-button>
             <el-button
               v-if="isAM && row.status === 'CREATED'"
@@ -151,9 +142,9 @@
             >
               编辑
             </el-button>
-            <!-- BL（项目负责人）可删除 CREATED 状态订单；AM（客户经理）仅查看/编辑 -->
+            <!-- 删除：仅客户经理可见，且只对待分派（CREATED）订单展示 -->
             <el-button
-              v-if="isBL && row.status === 'CREATED'"
+              v-if="isAM && row.status === 'CREATED'"
               type="danger"
               link
               size="small"
@@ -165,25 +156,19 @@
         </el-table-column>
       </el-table>
 
-      <!-- 加载更多 -->
+      <!-- 分页 -->
       <div class="load-more-wrap">
-        <el-button
-          v-if="hasMore"
-          type="primary"
-          plain
-          :loading="loadingMore"
-          :disabled="loadingMore"
-          @click="loadMore"
-        >
-          {{ loadingMore ? '加载中...' : '加载更多' }}
-        </el-button>
-        <div v-else-if="tableData.length > 0" class="no-more">
-          没有更多了
-        </div>
         <el-empty
-          v-else-if="!loading"
+          v-if="!loading && tableData.length === 0"
           :description="emptyText"
           :image-size="100"
+        />
+        <ClientPagination
+          v-else
+          :current-page="currentPage"
+          :page-size="pageSize"
+          :total="total"
+          @current-change="handlePageChange"
         />
       </div>
     </el-card>
@@ -258,10 +243,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, RefreshLeft } from '@element-plus/icons-vue'
 import { listOrders, deleteOrder, listDesigners, assignTask, assignOrder, getOrderDetail } from '@/api'
+import { useClientPagination } from '@/composables/useClientPagination'
+import ClientPagination from '@/components/common/ClientPagination.vue'
 import {
   MATERIAL_OPTIONS,
   ORDER_STATUS_OPTIONS,
@@ -285,8 +272,8 @@ const hasFilters = computed(() => {
 
 // 操作列宽度
 const actionColWidth = computed(() => {
-  if (isAM.value) return 180   // AM：查看 + 编辑（无分派/删除）
-  if (isBL.value) return 240   // BL：查看 + 分派 + 删除
+  if (isAM.value) return 200   // AM：查看 + 编辑 + 删除（删除仅待分派订单可见）
+  if (isBL.value) return 120   // BL：仅查看详情（只读）
   return 120                   // DS / 其他：查看
 })
 
@@ -299,7 +286,6 @@ const emptyText = computed(() => {
 })
 
 // ---------- 常量 ----------
-const PAGE_SIZE = 20
 const headerCellStyle = {
   background: 'var(--gray-50)',
   color: 'var(--gray-600)',
@@ -314,12 +300,12 @@ const filters = reactive({
   deliveryDateRange: []
 })
 
-// ---------- 表格 & 游标分页 ----------
+// ---------- 表格 & 前端本地分页 ----------
 const loading = ref(false)
-const loadingMore = ref(false)
-const tableData = ref([])
-const nextCursor = ref(null)
-const hasMore = ref(true)
+const tableData = ref([])   // 全量订单（后端一次性拉完，不新增后端分页接口）
+
+const { pagedData, currentPage, total, pageSize, resetPage, handlePageChange } =
+  useClientPagination(tableData)
 
 // ---------- 弹窗 / 抽屉 ----------
 const createDialogVisible = ref(false)
@@ -356,101 +342,53 @@ function getApprovedCount(row) {
   return 0
 }
 
-// ---------- 数据加载（游标分页） ----------
-async function fetchList(isLoadMore = false) {
-  if (isLoadMore) {
-    if (!hasMore.value || loadingMore.value) return
-    loadingMore.value = true
-  } else {
-    loading.value = true
-  }
-
+// ---------- 数据加载（循环游标接口拉全量，后端不改） ----------
+async function fetchList() {
+  loading.value = true
   try {
-    const params = {
-      limit: PAGE_SIZE
-    }
+    const allRows = []
+    let cursor = null
+    let hasMore = true
 
-    // 游标
-    if (isLoadMore && nextCursor.value) {
-      params.cursor = nextCursor.value
-    }
+    while (hasMore) {
+      const params = { limit: 100 }
+      if (cursor) params.cursor = cursor
 
-    // 筛选条件
-    if (filters.keyword) params.keyword = filters.keyword
-    if (filters.materialType) params.materialType = filters.materialType
-    if (filters.status) params.status = filters.status
-    if (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) {
-      params.deliveryDateFrom = filters.deliveryDateRange[0]
-      params.deliveryDateTo = filters.deliveryDateRange[1]
-    }
-
-    const res = await listOrders(params)
-
-    if (isLoadMore) {
-      // 追加模式
-      if (res.list && res.list.length > 0) {
-        tableData.value = [...tableData.value, ...res.list]
+      // 筛选条件
+      if (filters.keyword) params.keyword = filters.keyword
+      if (filters.materialType) params.materialType = filters.materialType
+      if (filters.status) params.status = filters.status
+      if (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) {
+        params.deliveryDateFrom = filters.deliveryDateRange[0]
+        params.deliveryDateTo = filters.deliveryDateRange[1]
       }
-    } else {
-      // 重置
-      tableData.value = res.list || []
+
+      const res = await listOrders(params)
+
+      allRows.push(...(res.list || []))
+      cursor = res.nextCursor || null
+      hasMore = !!res.hasMore && !!cursor
     }
 
-    nextCursor.value = res.nextCursor || null
-    hasMore.value = !!res.hasMore
+    tableData.value = allRows
+    resetPage()   // 数据刷新后回到第一页
   } catch (e) {
     // 错误已由拦截器统一处理
-    if (!isLoadMore) {
-      tableData.value = []
-    }
-    hasMore.value = false
+    tableData.value = []
+    resetPage()
   } finally {
-    if (isLoadMore) {
-      loadingMore.value = false
-    } else {
-      loading.value = false
-    }
+    loading.value = false
   }
 }
 
-function loadMore() {
-  fetchList(true)
-}
-
-// ---------- 上拉加载 ----------
-let scrollContainer = null
-
-function handleScroll() {
-  if (!scrollContainer) return
-  const { scrollTop, scrollHeight, clientHeight } = scrollContainer
-  // 距离底部 100px 时触发加载更多
-  if (scrollHeight - scrollTop - clientHeight < 100) {
-    if (hasMore.value && !loadingMore.value && !loading.value) {
-      loadMore()
-    }
-  }
-}
-
-function setupScrollListener() {
-  // 实际滚动容器是布局主内容区 el-main（class="layout-main"）
-  scrollContainer = document.querySelector('.layout-main')
-  if (scrollContainer) {
-    scrollContainer.addEventListener('scroll', handleScroll, { passive: true })
-  }
-}
-
-function removeScrollListener() {
-  if (scrollContainer) {
-    scrollContainer.removeEventListener('scroll', handleScroll)
-    scrollContainer = null
-  }
+// 回到第一页并重新加载（搜索/重置/增删改/分派成功后调用）
+function reloadFirstPage() {
+  fetchList()
 }
 
 // ---------- 搜索 / 重置 ----------
 function handleSearch() {
-  nextCursor.value = null
-  hasMore.value = true
-  fetchList(false)
+  reloadFirstPage()
 }
 
 function handleReset() {
@@ -458,9 +396,7 @@ function handleReset() {
   filters.materialType = ''
   filters.status = ''
   filters.deliveryDateRange = []
-  nextCursor.value = null
-  hasMore.value = true
-  fetchList(false)
+  reloadFirstPage()
 }
 
 // ---------- 操作 ----------
@@ -480,9 +416,15 @@ function handleView(row) {
 }
 
 async function handleDelete(row) {
+  // 前端二次校验：仅待分派（CREATED）订单允许删除
+  if (row.status !== 'CREATED') {
+    ElMessage.warning('该订单已经分派，不可删除')
+    return
+  }
+
   try {
     await ElMessageBox.confirm(
-      `确定要删除订单 ${row.orderNo} 吗？`,
+      `确认删除订单 ${row.orderNo}？`,
       '删除确认',
       {
         confirmButtonText: '确定删除',
@@ -498,9 +440,7 @@ async function handleDelete(row) {
     await deleteOrder(row.id)
     ElMessage.success('删除成功')
     // 重新加载列表
-    nextCursor.value = null
-    hasMore.value = true
-    fetchList(false)
+    reloadFirstPage()
   } catch (e) {
     // 错误已由拦截器处理
   }
@@ -508,9 +448,7 @@ async function handleDelete(row) {
 
 function handleCreateSuccess() {
   // 创建/编辑成功后刷新列表
-  nextCursor.value = null
-  hasMore.value = true
-  fetchList(false)
+  reloadFirstPage()
 }
 
 // ---------- 分派操作 ----------
@@ -616,9 +554,7 @@ async function handleAssignSubmit() {
       ElMessage.success('分派成功')
       assignDialog.visible = false
       // 刷新列表
-      nextCursor.value = null
-      hasMore.value = true
-      fetchList(false)
+      reloadFirstPage()
     } catch (e) {
       // 错误已由拦截器处理
     } finally {
@@ -629,13 +565,7 @@ async function handleAssignSubmit() {
 
 // ---------- 生命周期 ----------
 onMounted(() => {
-  fetchList(false)
-  // 延迟绑定滚动监听，确保 DOM 已渲染
-  setTimeout(setupScrollListener, 100)
-})
-
-onBeforeUnmount(() => {
-  removeScrollListener()
+  fetchList()
 })
 </script>
 

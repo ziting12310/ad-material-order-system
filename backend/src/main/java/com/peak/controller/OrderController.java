@@ -20,6 +20,7 @@ import com.peak.vo.OrderCreateResponseVO;
 import com.peak.vo.OrderDeliverResponseVO;
 import com.peak.vo.OrderDetailVO;
 import com.peak.vo.OrderListItemVO;
+import com.peak.vo.PageResult;
 import com.peak.vo.OrderRejectResponseVO;
 import com.peak.vo.OrderStatusUpdateResponseVO;
 import com.peak.vo.OperationLogVO;
@@ -84,6 +85,30 @@ public class OrderController {
         Long userId = UserContext.getUserId();
         String role = UserContext.getRole();
         return ResultVO.success(orderService.listOrders(userId, role, cursor, limit, materialType, status, keyword, designerId, creatorId, deliveryDateFrom, deliveryDateTo));
+    }
+
+    /**
+     * 订单列表（页码分页 pageNum/pageSize 模式）
+     * GET /api/v1/orders/page?pageNum=1&pageSize=20
+     *
+     * <p>返回：{ list, total, pages, pageNum, pageSize }；数据范围与过滤条件与游标分页接口完全一致。</p>
+     */
+    @GetMapping("/page")
+    @Operation(summary = "订单列表（页码分页）")
+    public ResultVO<PageResult<OrderListItemVO>> pageOrders(
+            @Parameter(description = "页码，默认 1") @RequestParam(defaultValue = "1") int pageNum,
+            @Parameter(description = "每页数量，默认 20，最大 100") @RequestParam(defaultValue = "20") int pageSize,
+            @Parameter(description = "物料类型过滤") @RequestParam(required = false) String materialType,
+            @Parameter(description = "状态过滤") @RequestParam(required = false) String status,
+            @Parameter(description = "关键字（订单号/客户名称）") @RequestParam(required = false) String keyword,
+            @Parameter(description = "设计人员ID过滤") @RequestParam(required = false) Long designerId,
+            @Parameter(description = "创建人ID过滤") @RequestParam(required = false) Long creatorId,
+            @Parameter(description = "交付日期起（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateFrom,
+            @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateTo) {
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
+        return ResultVO.success(orderService.pageOrders(userId, role, pageNum, pageSize,
+                materialType, status, keyword, designerId, creatorId, deliveryDateFrom, deliveryDateTo));
     }
 
     /**
@@ -241,12 +266,12 @@ public class OrderController {
     }
 
     /**
-     * 删除订单 — 仅 BL 且订单处于 CREATED
+     * 删除订单 — 仅 AM（客户经理）且订单处于待分派（CREATED）
      * DELETE /api/v1/orders/{id}
      */
     @DeleteMapping("/{id}")
-    @RequireRole({UserRole.BL})
-    @Operation(summary = "删除订单（仅已登记状态，逻辑删除）")
+    @RequireRole({UserRole.AM})
+    @Operation(summary = "删除订单（仅待分派状态，逻辑删除）")
     public ResultVO<Void> deleteOrder(@PathVariable Long id, HttpServletRequest request) {
         Long operatorId = (Long) request.getAttribute("userId");
         orderService.deleteOrder(id, operatorId);

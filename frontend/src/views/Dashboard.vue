@@ -13,8 +13,8 @@
       </div>
     </div>
 
-    <!-- 统计卡片组（4张） -->
-    <el-row :gutter="16" class="stat-row">
+    <!-- 统计卡片组（4张）：客户经理首页不展示统计卡片 -->
+    <el-row v-if="!isAM" :gutter="16" class="stat-row">
       <el-col :xs="12" :sm="6" v-for="(card, idx) in statCards" :key="idx">
         <el-card
           class="stat-card"
@@ -213,6 +213,9 @@
       </div>
     </el-card>
 
+    <!-- 新建订单弹窗（客户经理首页快捷操作直接打开） -->
+    <OrderCreateDialog v-model="createDialogVisible" @success="handleCreateSuccess" />
+
     <!-- 订单详情抽屉 -->
     <OrderDetailDrawer
       v-model="detailDrawerVisible"
@@ -250,6 +253,7 @@ import {
   getMaterialLabel
 } from '@/constants'
 import OrderDetailDrawer from './order/OrderDetailDrawer.vue'
+import OrderCreateDialog from './order/OrderCreateDialog.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -290,7 +294,7 @@ const statCards = computed(() => {
   return [
     { key: 'pendingAssign', label: '待分派', icon: 'Clock', status: 'CREATED', route: '/orders', color: 'info' },
     { key: 'designing', label: '设计中', icon: 'EditPen', status: 'DESIGNING', route: '/orders', color: 'warning' },
-    { key: 'waitApprove', label: '待审核', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: '/final-audit', color: 'warning' },
+    { key: 'waitApprove', label: '待审核', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: isAM.value ? '/am-workbench' : '/final-audit', color: 'warning' },
     { key: 'archived', label: '已归档', icon: 'FolderChecked', status: 'ARCHIVED', route: '/archive', color: 'success' }
   ]
 })
@@ -318,6 +322,7 @@ const quickActions = computed(() => {
     return [
       { label: '新建订单', icon: 'Plus', action: 'createOrder', bgColor: 'var(--primary-light)', color: 'var(--primary-color)' },
       { label: '订单管理', icon: 'Document', route: '/orders', bgColor: 'var(--info-light)', color: 'var(--info-color)' },
+      { label: '定稿审核', icon: 'CircleCheck', route: '/am-workbench', bgColor: 'var(--warning-light)', color: '#d97706' },
       { label: '归档查询', icon: 'FolderOpened', route: '/archive', bgColor: 'var(--success-light)', color: 'var(--success-color)' }
     ]
   }
@@ -345,6 +350,14 @@ const auditLoading = ref(false)
 // ---------- 详情抽屉 ----------
 const detailDrawerVisible = ref(false)
 const currentViewOrderId = ref(null)
+
+// ---------- 新建订单弹窗 ----------
+const createDialogVisible = ref(false)
+
+// 新建订单成功 → 刷新首页订单列表
+function handleCreateSuccess() {
+  fetchRecent(statFilterStatus.value)
+}
 
 // ---------- 统计数据加载 ----------
 async function fetchStats() {
@@ -469,6 +482,11 @@ function clearStatFilter() {
 // ---------- 操作：快捷操作 ----------
 function handleQuickAction(item) {
   if (item.action === 'createOrder') {
+    // 客户经理首页：直接打开新建订单弹窗，不再跳转订单管理页
+    if (isAM.value) {
+      createDialogVisible.value = true
+      return
+    }
     ElMessage.info('请前往订单管理页新建订单')
     router.push('/orders')
     return
@@ -497,6 +515,8 @@ function viewOrderDetail(row) {
 function goToAuditLogs() {
   if (isDS.value) {
     router.push({ path: '/design-workbench', query: { tab: 'audit' } })
+  } else if (isAM.value) {
+    router.push('/am-workbench')
   } else {
     router.push({ path: '/final-audit', query: { tab: 'logs' } })
   }

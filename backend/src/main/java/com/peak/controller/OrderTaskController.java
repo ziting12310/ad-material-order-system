@@ -99,7 +99,7 @@ public class OrderTaskController {
                                              @Valid @RequestBody TaskAssignDTO dto,
                                              HttpServletRequest request) {
         Long operatorId = UserContext.getUserId();
-        return ResultVO.success(orderTaskService.assignTask(taskId, dto, operatorId));
+        return ResultVO.success(orderTaskService.assignTask(orderId, taskId, dto, operatorId));
     }
 
     @PutMapping("/{taskId}/accept")

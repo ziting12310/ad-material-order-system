@@ -61,13 +61,13 @@
       <template #header>
         <div class="table-header">
           <span class="table-title">归档订单列表</span>
-          <span class="table-count">共加载 {{ tableData.length }} 条</span>
+          <span class="table-count">共 {{ tableData.length }} 条</span>
         </div>
       </template>
 
       <el-table
         v-loading="loading"
-        :data="tableData"
+        :data="pagedTableData"
         border
         style="width: 100%"
         :header-cell-style="headerCellStyle"
@@ -112,25 +112,19 @@
         </el-table-column>
       </el-table>
 
-      <!-- 加载更多 -->
+      <!-- 分页（前端本地分页，每页 10 条） -->
       <div class="load-more-wrap">
-        <el-button
-          v-if="hasMore"
-          type="primary"
-          plain
-          :loading="loadingMore"
-          :disabled="loadingMore"
-          @click="loadMore"
-        >
-          {{ loadingMore ? '加载中...' : '加载更多' }}
-        </el-button>
-        <div v-else-if="tableData.length > 0" class="no-more">
-          没有更多了
-        </div>
         <el-empty
-          v-else-if="!loading"
+          v-if="!loading && tableData.length === 0"
           :description="hasFilters ? '暂无符合条件的数据' : '暂无数据'"
           :image-size="100"
+        />
+        <ClientPagination
+          v-else
+          :current-page="page"
+          :page-size="archivePageSize"
+          :total="archiveTotal"
+          @current-change="handlePageChange"
         />
       </div>
     </el-card>
@@ -392,6 +386,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, RefreshLeft, Document } from '@element-plus/icons-vue'
 import { listArchivedOrders, getArchivedOrder } from '@/api/audit'
+import { useClientPagination } from '@/composables/useClientPagination'
+import ClientPagination from '@/components/common/ClientPagination.vue'
 import {
   MATERIAL_OPTIONS,
   getMaterialLabel,
@@ -420,12 +416,19 @@ const hasFilters = computed(() => {
     (filters.deliveryDateRange && filters.deliveryDateRange.length === 2))
 })
 
-// ---------- 表格 & 游标分页 ----------
+// ---------- 表格 & 前端本地分页 ----------
 const loading = ref(false)
-const loadingMore = ref(false)
-const tableData = ref([])
-const nextCursor = ref(null)
-const hasMore = ref(true)
+const tableData = ref([])       // 全量归档订单（后端一次拉完，不新增后端接口）
+
+// 统一的前端本地分页 Hook（每页固定 10 条）
+const {
+  pagedData: pagedTableData,
+  currentPage: page,
+  total: archiveTotal,
+  pageSize: archivePageSize,
+  resetPage: resetArchivePage,
+  handlePageChange
+} = useClientPagination(tableData)
 
 // ---------- 详情抽屉 ----------
 const detailDrawer = reactive({
@@ -480,79 +483,48 @@ function logTypeColor(action) {
   return 'info'
 }
 
-// ---------- 数据加载（游标分页） ----------
-async function fetchList(isLoadMore = false) {
-  if (isLoadMore) {
-    if (!hasMore.value || loadingMore.value) return
-    loadingMore.value = true
-  } else {
-    loading.value = true
-  }
-
+// ---------- 数据加载（循环游标接口拉全量，后端不改） ----------
+async function fetchList() {
+  loading.value = true
   try {
-    const params = {
-      limit: PAGE_SIZE
-    }
-
-    // 游标
-    if (isLoadMore && nextCursor.value) {
-      params.cursor = nextCursor.value
-    }
-
-    // 筛选条件
-    if (filters.keyword) params.keyword = filters.keyword
-    if (filters.materialType) params.materialType = filters.materialType
-    if (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) {
-      params.deliveryDateFrom = filters.deliveryDateRange[0]
-      params.deliveryDateTo = filters.deliveryDateRange[1]
-    }
-
-    const res = await listArchivedOrders(params)
-
-    if (isLoadMore) {
-      // 追加模式
-      if (res.list && res.list.length > 0) {
-        tableData.value = [...tableData.value, ...res.list]
+    const allRows = []
+    let cursor = null
+    let hasMore = true
+    while (hasMore) {
+      const params = { limit: PAGE_SIZE }
+      if (cursor) params.cursor = cursor
+      // 筛选条件
+      if (filters.keyword) params.keyword = filters.keyword
+      if (filters.materialType) params.materialType = filters.materialType
+      if (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) {
+        params.deliveryDateFrom = filters.deliveryDateRange[0]
+        params.deliveryDateTo = filters.deliveryDateRange[1]
       }
-    } else {
-      // 重置
-      tableData.value = res.list || []
+      const res = await listArchivedOrders(params)
+      allRows.push(...(res.list || []))
+      cursor = res.nextCursor || null
+      hasMore = !!res.hasMore && !!cursor
     }
-
-    nextCursor.value = res.nextCursor || null
-    hasMore.value = !!res.hasMore
+    tableData.value = allRows
+    resetArchivePage()   // 数据刷新后回到第一页
   } catch (e) {
-    if (!isLoadMore) {
-      tableData.value = []
-    }
-    hasMore.value = false
+    tableData.value = []
+    resetArchivePage()
   } finally {
-    if (isLoadMore) {
-      loadingMore.value = false
-    } else {
-      loading.value = false
-    }
+    loading.value = false
   }
-}
-
-function loadMore() {
-  fetchList(true)
 }
 
 // ---------- 搜索 / 重置 ----------
 function handleSearch() {
-  nextCursor.value = null
-  hasMore.value = true
-  fetchList(false)
+  fetchList()
 }
 
 function handleReset() {
   filters.keyword = ''
   filters.materialType = ''
   filters.deliveryDateRange = []
-  nextCursor.value = null
-  hasMore.value = true
-  fetchList(false)
+  fetchList()
 }
 
 // ---------- 查看详情 ----------
@@ -600,7 +572,7 @@ function previewVersion(row) {
 
 // ---------- 生命周期 ----------
 onMounted(() => {
-  fetchList(false)
+  fetchList()
 })
 </script>
 

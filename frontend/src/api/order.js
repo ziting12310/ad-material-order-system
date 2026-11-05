@@ -25,6 +25,16 @@ export function listOrders(params) {
 }
 
 /**
+ * 订单列表（页码分页）
+ * GET /api/v1/orders/page
+ * @param {Object} params - { pageNum(默认1), pageSize(默认20), materialType, status, keyword, ... }
+ * @returns {Object} { list, total, pages, pageNum, pageSize }
+ */
+export function pageOrders(params) {
+    return request.get('/orders/page', { params, silent: true })
+}
+
+/**
  * 订单详情
  * GET /api/v1/orders/{id}
  */

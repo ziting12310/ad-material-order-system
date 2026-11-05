@@ -333,9 +333,29 @@ public class OrderTaskServiceImpl implements OrderTaskService {
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public OrderTaskVO assignTask(Long taskId, TaskAssignDTO dto, Long operatorId) {
-        OrderTask task = findTaskOrThrow(taskId);
+    public OrderTaskVO assignTask(Long orderId, Long taskId, TaskAssignDTO dto, Long operatorId) {
+        OrderTask task = orderTaskMapper.selectById(taskId);
+
+        // 校验③：任务数据异常（任务不存在或不属于当前订单）
+        if (task == null || (orderId != null && !orderId.equals(task.getOrderId()))) {
+            throw new BusinessException(ErrorCode.PARAM_VALIDATION_ERROR, "任务数据异常，无法分派");
+        }
+
         Order order = findOrderOrThrow(task.getOrderId());
+
+        // 校验①：已分派（已有设计师负责人）
+        if (task.getDesignerId() != null || OrderStatus.ASSIGNED.getCode().equals(task.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_ALREADY_ASSIGNED,
+                    "当前任务状态为【已分派】，按已有状态不可分派");
+        }
+
+        // 校验②：流程已结束（已定稿 / 已驳回 / 已交付 / 已作废）
+        if (OrderStatus.APPROVED.getCode().equals(task.getStatus())
+                || "REJECTED".equals(task.getStatus())
+                || OrderStatus.DELIVERED.getCode().equals(task.getStatus())
+                || OrderStatus.CANCELLED.getCode().equals(task.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT, "该任务流程已结束，不可重新分派");
+        }
 
         if (!OrderStatus.CREATED.getCode().equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
@@ -378,6 +398,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
             throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
         }
 
+        // 分派成功写入操作日志
         opLog.logTask(task.getOrderId(), taskId, OperationType.TASK_ASSIGN,
                 "分派给设计人员：" + designer.getName(),
                 operatorId, null, null);

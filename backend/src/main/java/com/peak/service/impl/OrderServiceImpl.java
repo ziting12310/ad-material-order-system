@@ -40,6 +40,7 @@ import com.peak.service.OrderTaskService;
 import com.peak.util.OperationLogUtil;
 import com.peak.util.OrderStateMachineUtil;
 import com.peak.vo.CursorPage;
+import com.peak.vo.PageResult;
 import com.peak.vo.DesignVersionVO;
 import com.peak.vo.OperationLogVO;
 import com.peak.vo.OrderApproveResponseVO;
@@ -175,6 +176,51 @@ public class OrderServiceImpl implements OrderService {
         List<Order> page = hasMore ? all.subList(0, effectiveLimit) : all;
         String nextCursor = hasMore ? encodeCursor(page.get(page.size() - 1).getId()) : null;
 
+        List<OrderListItemVO> voList = assembleListItemVOs(page);
+
+        return new CursorPage<>(voList, nextCursor, hasMore, total);
+    }
+
+    // ========================================================================
+    // 【1.2】订单列表（页码分页 pageNum/pageSize 模式）
+    // ========================================================================
+    @Override
+    public PageResult<OrderListItemVO> pageOrders(Long userId, String userRole,
+                                                  int pageNum, int pageSize,
+                                                  String materialType, String status, String keyword,
+                                                  Long designerId, Long creatorId,
+                                                  String deliveryDateFrom, String deliveryDateTo) {
+        int effectivePageNum = Math.max(pageNum, 1);
+        int effectivePageSize = Math.min(Math.max(pageSize, 1), 100);
+
+        // 总数（与列表同一套数据范围 + 过滤条件）
+        LambdaQueryWrapper<Order> countWrapper = new LambdaQueryWrapper<>();
+        applyDataScopeFilter(countWrapper, userId, userRole);
+        applyOrderFilters(countWrapper, materialType, status, keyword, designerId, creatorId,
+                deliveryDateFrom, deliveryDateTo);
+        long total = orderMapper.selectCount(countWrapper);
+        long pages = total == 0 ? 0 : (total + effectivePageSize - 1) / effectivePageSize;
+
+        // 当前页数据
+        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
+        applyDataScopeFilter(wrapper, userId, userRole);
+        applyOrderFilters(wrapper, materialType, status, keyword, designerId, creatorId,
+                deliveryDateFrom, deliveryDateTo);
+        wrapper.orderByDesc(Order::getId);
+        long offset = (long) (effectivePageNum - 1) * effectivePageSize;
+        wrapper.last("LIMIT " + offset + ", " + effectivePageSize);
+
+        List<Order> page = orderMapper.selectList(wrapper);
+        List<OrderListItemVO> voList = assembleListItemVOs(page);
+
+        return new PageResult<>(voList, total, pages, effectivePageNum, effectivePageSize);
+    }
+
+    /** 批量组装订单列表 VO（游标分页与页码分页共用，保证两种分页模式返回结构完全一致） */
+    private List<OrderListItemVO> assembleListItemVOs(List<Order> page) {
+        if (page == null || page.isEmpty()) {
+            return new ArrayList<>();
+        }
         // 批量查设计师姓名
         Map<Long, String> designerNames = batchLoadUserNames(
                 page.stream().map(Order::getDesignerId).filter(id -> id != null).distinct().toList());
@@ -187,7 +233,7 @@ public class OrderServiceImpl implements OrderService {
         Map<Long, List<OrderTaskVO>> taskVOsByOrder = batchLoadOrderTaskVOs(
                 page.stream().map(Order::getId).toList());
 
-        List<OrderListItemVO> voList = page.stream()
+        return page.stream()
                 .map(o -> {
                     OrderListItemVO vo = buildListItemVO(o, designerNames.get(o.getDesignerId()));
                     int[] stats = taskStats.getOrDefault(o.getId(), new int[]{0, 0});
@@ -197,8 +243,6 @@ public class OrderServiceImpl implements OrderService {
                     return vo;
                 })
                 .toList();
-
-        return new CursorPage<>(voList, nextCursor, hasMore, total);
     }
 
     // ========================================================================
@@ -804,11 +848,18 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteOrder(Long orderId, Long operatorId) {
-        requireRole(operatorId, UserRole.BL.getCode());
+        requireRole(operatorId, UserRole.AM.getCode());
         Order order = findOrderOrThrow(orderId);
+
+        // 客户经理仅能删除自己创建的订单，防止越权
+        if (order.getCreatedBy() == null || !order.getCreatedBy().equals(operatorId)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "无权删除该订单");
+        }
+
+        // 仅待分派（CREATED）订单允许删除；已分派/设计中/待审核/已交付等一律拒绝
         if (!OrderStatus.CREATED.getCode().equals(order.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "仅已登记状态的订单可以删除");
+                    "该订单已经分派，不可删除");
         }
         checkNotArchived(order);
 

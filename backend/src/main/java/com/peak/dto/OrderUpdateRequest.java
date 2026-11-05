@@ -28,8 +28,7 @@ public class OrderUpdateRequest {
     @Positive(message = "数量必须为正整数")
     @Max(value = 99999, message = "数量需在 1-99999 之间")
     private Integer quantity;
-    @NotBlank
-    @Size(min = 5, max = 200, message = "规格说明长度需在 5-200 字符之间")
+    @Size(max = 200, message = "规格说明最长200字符")
     private String specification;
     @NotNull @Future
     private LocalDate deliveryDate;
@@ -64,7 +63,7 @@ public class OrderUpdateRequest {
         @Max(value = 99999, message = "数量需在 1-99999 之间")
         private Integer quantity;
 
-        @Size(min = 2, max = 200, message = "规格说明长度需在 2-200 字符之间")
+        @Size(max = 200, message = "规格说明最长200字符")
         private String specification;
 
         @Size(max = 200, message = "用途说明最多200字符")
