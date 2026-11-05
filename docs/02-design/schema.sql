@@ -10,8 +10,11 @@
 --   2. 字段名严格按 MyBatis-Plus 默认驼峰映射（users.locked 即实体字段 locked）；
 --   3. 布尔语义字段使用 is_ 前缀列（is_archived / is_final / is_deleted），
 --      并通过 @TableField 映射到实体属性；
---   4. 所有表均包含 is_deleted（逻辑删除，默认 0）与 version（乐观锁，默认 0）；
---   5. 表之间不使用物理外键，按业务 ID 关联，避免多任务迁移时的约束顺序问题；
+--   4. 除纯字典表 roles 外，所有表均包含 is_deleted（逻辑删除，默认 0）与
+--      version（乐观锁，默认 0）；
+--   5. 表之间启用 10 条物理外键（清单见 DATABASE.md §5.3），统一
+--      ON DELETE RESTRICT / ON UPDATE CASCADE；orders.final_version_id
+--      仅逻辑关联，不建物理外键（规避与 design_versions 的循环依赖）；
 --   6. 本脚本会 DROP 既有同名表，仅用于空库/测试库初始化，勿在生产库直接执行。
 -- ============================================================================
 
@@ -25,7 +28,22 @@ CREATE DATABASE IF NOT EXISTS `amoms`
 USE `amoms`;
 
 -- ----------------------------------------------------------------------------
--- 1. users - 用户表
+-- 1. roles - 角色字典表
+-- ----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `roles`;
+CREATE TABLE `roles` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `role_code`   VARCHAR(32)  NOT NULL COMMENT '角色编码（AM/BL/DS/GUEST）',
+  `role_name`   VARCHAR(32)  NOT NULL COMMENT '角色名称（中文）',
+  `description` VARCHAR(200)          DEFAULT NULL COMMENT '角色描述',
+  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_role_code` (`role_code`) COMMENT '角色编码唯一'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色字典表';
+
+-- ----------------------------------------------------------------------------
+-- 2. users - 用户表（role 保持 VARCHAR 角色编码，不引入 role_id 字段/外键）
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `users`;
 CREATE TABLE `users` (
@@ -49,7 +67,7 @@ CREATE TABLE `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ----------------------------------------------------------------------------
--- 2. orders - 订单主表
+-- 3. orders - 订单主表
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `orders`;
 CREATE TABLE `orders` (
@@ -89,7 +107,7 @@ CREATE TABLE `orders` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单主表';
 
 -- ----------------------------------------------------------------------------
--- 3. order_tasks - 物料任务表（多物料模型核心表）
+-- 4. order_tasks - 物料任务表（多物料模型核心表）
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `order_tasks`;
 CREATE TABLE `order_tasks` (
@@ -100,12 +118,13 @@ CREATE TABLE `order_tasks` (
   `quantity`          INT           NOT NULL COMMENT '数量（1~99999）',
   `specification`     VARCHAR(200)  NOT NULL COMMENT '规格说明',
   `usage_desc`        VARCHAR(200)           DEFAULT NULL COMMENT '用途说明',
-  `deadline`          DATE                   DEFAULT NULL COMMENT '任务截止日期',
+  `deadline`          DATE          NOT NULL COMMENT '任务截止日期（必填）',
   `remark`            VARCHAR(500)           DEFAULT NULL COMMENT '任务备注',
   `status`            VARCHAR(32)   NOT NULL DEFAULT 'CREATED' COMMENT '任务状态（OrderStatus子集）',
   `designer_id`       BIGINT                 DEFAULT NULL COMMENT '设计人员ID（users.id）',
   `assigned_by`       BIGINT                 DEFAULT NULL COMMENT '分派人ID（BL）',
   `assigned_at`       DATETIME               DEFAULT NULL COMMENT '分派时间',
+  `assign_remark`     VARCHAR(200)           DEFAULT NULL COMMENT '分派备注',
   `approved_by`       BIGINT                 DEFAULT NULL COMMENT '定稿人ID（BL）',
   `approved_at`       DATETIME               DEFAULT NULL COMMENT '定稿时间',
   `final_version_id`  BIGINT                 DEFAULT NULL COMMENT '定稿版本ID（design_versions.id）',
@@ -121,17 +140,19 @@ CREATE TABLE `order_tasks` (
   KEY `idx_status` (`status`),
   KEY `idx_designer_id` (`designer_id`),
   KEY `idx_deadline` (`deadline`),
-  KEY `idx_is_deleted` (`is_deleted`)
+  KEY `idx_is_deleted` (`is_deleted`),
+  CONSTRAINT `fk_order_tasks_order_id`    FOREIGN KEY (`order_id`)    REFERENCES `orders` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_order_tasks_designer_id` FOREIGN KEY (`designer_id`) REFERENCES `users` (`id`)  ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='物料任务表';
 
 -- ----------------------------------------------------------------------------
--- 4. design_versions - 设计稿版本表
+-- 5. design_versions - 设计稿版本表
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `design_versions`;
 CREATE TABLE `design_versions` (
   `id`            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `order_id`      BIGINT        NOT NULL COMMENT '关联订单ID（orders.id）',
-  `task_id`       BIGINT        NOT NULL COMMENT '关联物料任务ID（order_tasks.id，多物料模型必填）',
+  `task_id`       BIGINT                 DEFAULT NULL COMMENT '关联物料任务ID（order_tasks.id，可为空）',
   `version_no`    VARCHAR(10)   NOT NULL COMMENT '版本号（V1/V2/V3...）',
   `file_id`       VARCHAR(500)  NOT NULL COMMENT '文件业务ID（本地/OSS Key）',
   `file_url`      VARCHAR(500)  NOT NULL COMMENT '文件访问URL',
@@ -147,23 +168,25 @@ CREATE TABLE `design_versions` (
   `version`       INT           NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
   `is_deleted`    TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '逻辑删除（0-否 1-是）',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_task_version` (`task_id`, `version_no`) COMMENT '同一任务版本号唯一',
+  UNIQUE KEY `uk_order_version` (`order_id`, `version_no`) COMMENT '同一订单版本号唯一',
   KEY `idx_order_id` (`order_id`),
   KEY `idx_task_id` (`task_id`),
   KEY `idx_file_id` (`file_id`),
   KEY `idx_is_final` (`is_final`),
   KEY `idx_uploaded_at` (`uploaded_at`),
-  KEY `idx_is_deleted` (`is_deleted`)
+  KEY `idx_is_deleted` (`is_deleted`),
+  CONSTRAINT `fk_design_versions_order_id` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`)      ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_design_versions_task_id`  FOREIGN KEY (`task_id`)  REFERENCES `order_tasks` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设计稿版本表';
 
 -- ----------------------------------------------------------------------------
--- 5. order_feedbacks - 订单修改意见表
+-- 6. order_feedbacks - 订单修改意见表
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `order_feedbacks`;
 CREATE TABLE `order_feedbacks` (
   `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `order_id`       BIGINT       NOT NULL COMMENT '关联订单ID（orders.id）',
-  `task_id`        BIGINT       NOT NULL COMMENT '关联物料任务ID（order_tasks.id）',
+  `task_id`        BIGINT                 DEFAULT NULL COMMENT '关联物料任务ID（order_tasks.id，可为空）',
   `version_id`     BIGINT       NOT NULL COMMENT '关联设计稿版本ID（design_versions.id）',
   `content`        TEXT         NOT NULL COMMENT '修改意见内容（1~500字符）',
   `status`         VARCHAR(32)  NOT NULL DEFAULT 'PENDING' COMMENT '意见状态（PENDING/PROCESSED）',
@@ -180,11 +203,14 @@ CREATE TABLE `order_feedbacks` (
   KEY `idx_version_id` (`version_id`),
   KEY `idx_submitted_by` (`submitted_by`),
   KEY `idx_submitted_at` (`submitted_at`),
-  KEY `idx_is_deleted` (`is_deleted`)
+  KEY `idx_is_deleted` (`is_deleted`),
+  CONSTRAINT `fk_order_feedbacks_order_id`   FOREIGN KEY (`order_id`)   REFERENCES `orders` (`id`)           ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_order_feedbacks_task_id`    FOREIGN KEY (`task_id`)    REFERENCES `order_tasks` (`id`)      ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_order_feedbacks_version_id` FOREIGN KEY (`version_id`) REFERENCES `design_versions` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单修改意见表';
 
 -- ----------------------------------------------------------------------------
--- 6. order_reference_files - 订单参考文件表
+-- 7. order_reference_files - 订单参考文件表
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `order_reference_files`;
 CREATE TABLE `order_reference_files` (
@@ -206,11 +232,13 @@ CREATE TABLE `order_reference_files` (
   KEY `idx_task_id` (`task_id`),
   KEY `idx_file_id` (`file_id`),
   KEY `idx_uploaded_at` (`uploaded_at`),
-  KEY `idx_is_deleted` (`is_deleted`)
+  KEY `idx_is_deleted` (`is_deleted`),
+  CONSTRAINT `fk_order_reference_files_order_id` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`)      ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_order_reference_files_task_id`  FOREIGN KEY (`task_id`)  REFERENCES `order_tasks` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单参考文件表';
 
 -- ----------------------------------------------------------------------------
--- 7. order_operation_logs - 订单操作历史表
+-- 8. order_operation_logs - 订单操作历史表
 -- ----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `order_operation_logs`;
 CREATE TABLE `order_operation_logs` (
@@ -234,12 +262,21 @@ CREATE TABLE `order_operation_logs` (
   KEY `idx_operation_type` (`operation_type`),
   KEY `idx_operator_id` (`operator_id`),
   KEY `idx_operated_at` (`operated_at`),
-  KEY `idx_is_deleted` (`is_deleted`)
+  KEY `idx_is_deleted` (`is_deleted`),
+  CONSTRAINT `fk_order_operation_logs_order_id` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单操作历史表';
 
 -- ============================================================================
 -- 初始化数据
 -- ============================================================================
+
+-- ---- 角色字典 4 条（users.role 保留 VARCHAR 编码，不建 role_id 外键） ----
+INSERT INTO `roles` (`id`, `role_code`, `role_name`, `description`, `created_at`, `updated_at`)
+VALUES
+  (1, 'GUEST', '访客',         '未登录用户，无任何操作权限',       '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+  (2, 'AM',    '客户经理',     '订单发起人，负责客户对接与登记',   '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+  (3, 'BL',    '业务负责人',   '负责分派、审核与交付',             '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+  (4, 'DS',    '设计制作人员', '设计执行者，负责设计稿上传与迭代', '2026-08-01 09:00:00', '2026-08-01 09:00:00');
 
 -- ---- 测试用户 6 个：AM/BL/DS 各 2 个，密码统一 123456 ----
 -- bcrypt 强度 10，$2a 版本；已用 bcrypt.checkpw("123456", hash) 验证通过
@@ -253,7 +290,7 @@ VALUES
   (5, 'ds_liming',   '$2a$10$15D0uZbVhGSbFH.Txc0t.eXgQg3PO3gCzTIw24omrIsnuQD0VyGUu', '李明', 'DS', '13800138005', 0, 0, 0),
   (6, 'ds_qianqi',   '$2a$10$15D0uZbVhGSbFH.Txc0t.eXgQg3PO3gCzTIw24omrIsnuQD0VyGUu', '钱七', 'DS', '13800138006', 0, 0, 0);
 
--- ---- 1 条测试订单：状态 DESIGNING，已分派给 DS 李明（id=5） ----
+-- ---- 1 条测试订单：状态 REVIEWING，已分派给 DS 李明（id=5） ----
 INSERT INTO `orders`
   (`id`, `order_no`, `customer_name`, `contact_name`, `contact_phone`,
    `material_type`, `quantity`, `specification`, `delivery_date`, `remark`,
@@ -262,20 +299,20 @@ INSERT INTO `orders`
 VALUES
   (1, 'ORD-2026-00001', '星光传媒', '陈晨', '13800138100',
    'POSTER', 500, 'A1 海报，300g 铜版纸，四色印刷', '2026-12-31', '客户要求蓝色主色调',
-   'DESIGNING', 5, 1, 3, '2026-03-04 10:10:00',
+   'REVIEWING', 5, 1, 3, '2026-03-04 10:10:00',
    0, 0, '2026-03-04 10:00:00', '2026-03-04 10:10:00', 0);
 
--- ---- 2 个测试任务：均 DESIGNING（与订单状态聚合一致） ----
+-- ---- 2 个测试任务：均 REVIEWING（与订单状态聚合一致） ----
 INSERT INTO `order_tasks`
   (`id`, `order_id`, `task_no`, `material_type`, `quantity`, `specification`,
    `usage_desc`, `deadline`, `remark`, `status`, `designer_id`, `assigned_by`, `assigned_at`,
    `sort_order`, `version`, `created_at`, `updated_at`, `is_deleted`)
 VALUES
   (1, 1, 'T-001', 'POSTER', 300, 'A1 海报，300g 铜版纸，四色印刷',
-   '门店橱窗主视觉', '2026-12-20', '优先出首版', 'DESIGNING', 5, 3, '2026-03-04 10:10:00',
+   '门店橱窗主视觉', '2026-12-20', '优先出首版', 'REVIEWING', 5, 3, '2026-03-04 10:10:00',
    1, 0, '2026-03-04 10:00:00', '2026-03-04 10:10:00', 0),
   (2, 1, 'T-002', 'POSTER', 200, 'A2 海报，200g 铜版纸',
-   '店内活动区海报', '2026-12-25', NULL, 'DESIGNING', 5, 3, '2026-03-04 10:10:00',
+   '店内活动区海报', '2026-12-25', NULL, 'REVIEWING', 5, 3, '2026-03-04 10:10:00',
    2, 0, '2026-03-04 10:00:00', '2026-03-04 10:10:00', 0);
 
 -- ---- 1 条设计稿版本：任务 T-001 的 V1，由 DS 李明上传 ----

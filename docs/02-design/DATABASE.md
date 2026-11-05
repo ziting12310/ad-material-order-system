@@ -13,9 +13,9 @@
 
 ### 1.1 删除策略裁决：软删除（is_deleted）
 
-**本系统采用软删除策略，不使用物理外键级联删除。**
+**本系统采用软删除策略，并启用物理外键（删除策略统一 RESTRICT），禁止级联删除。**
 
-| 维度 | 软删除（is_deleted） | 物理外键 + 级联删除 | 裁决 |
+| 维度 | 软删除（is_deleted） | 物理外键 + RESTRICT 删除 | 裁决 |
 |---|---|---|---|
 | 数据完整性 | 高（历史数据全部保留） | 低（级联删除不可恢复） | 软删除胜出 |
 | 审计追溯 | 完整保留所有操作痕迹 | 级联删除后无迹可寻 | 软删除胜出 |
@@ -27,7 +27,7 @@
 1. 订单管理系统的核心资产是订单数据，任何订单、设计稿、修改意见都不应被物理删除，这是广告行业的基本业务要求（交付记录、版本追溯、纠纷举证）。
 2. 软删除配合 `is_deleted` 索引，查询性能影响极小（WHERE 条件 + 索引过滤）。
 3. MyBatis-Plus 内置逻辑删除插件，开发成本几乎为零。
-4. 不使用物理外键级联删除，避免误操作导致整表数据被级联清空的风险。数据一致性由应用层（Service 事务）保障。
+4. 物理外键统一 `ON DELETE RESTRICT`，禁止 `ON DELETE CASCADE`：业务删除只能走应用层软删除（`is_deleted`），既能防止误删父行导致子表被连带清空，又能由数据库兜底引用完整性。
 
 ### 1.2 命名规范
 
@@ -39,7 +39,7 @@
 | 外键 | `{entity}_id` | `order_id`、`designer_id` |
 | 时间字段 | `_at` 后缀 | `created_at`、`assigned_at` |
 | 布尔字段 | `is_` 前缀，TINYINT(1) | `is_archived`、`is_deleted` |
-| 枚举字段 | VARCHAR(32) 存 code | `status` = `WAIT_APPROVE` |
+| 枚举字段 | VARCHAR(32) 存 code | `status` = `REVIEWING` |
 | 普通索引 | `idx_{字段名}` | `idx_status` |
 | 唯一索引 | `uk_{字段名}` | `uk_order_no` |
 | 复合索引 | `idx_{表名缩写}_{字段1}_{字段2}` | `idx_order_feedback_status` |
@@ -50,34 +50,43 @@
 
 ## 二、表结构总览
 
-### 2.1 表清单（共 6 张，无第 7 张业务表）
+### 2.1 表清单（共 8 张业务表）
 
 | 序号 | 表名 | 中文名称 | 记录量级（MVP预估） | 核心作用 |
 |---|---|---|---|---|
 | 1 | `roles` | 角色字典表 | 4 条 | 用户角色枚举的物理存储，供权限判断引用 |
 | 2 | `users` | 用户表 | < 100 条 | 系统内部用户账号与基本信息 |
 | 3 | `orders` | 订单主表 | 数千~数万条 | 一笔订单的完整业务记录（核心表） |
-| 4 | `design_versions` | 设计稿版本表 | 订单数 × 平均 3~5 版 | 订单下的设计稿版本迭代记录 |
-| 5 | `order_feedbacks` | 订单修改意见表 | 订单数 × 平均 2~4 条 | 针对设计稿版本的修改意见记录 |
-| 6 | `order_reference_files` | 订单参考文件表 | 订单数 × 平均 2~3 个 | 订单登记时的参考资料文件 |
+| 4 | `order_tasks` | 物料任务表 | 订单数 × 平均 1~3 条 | 一笔订单下的多物料任务拆分与分派 |
+| 5 | `design_versions` | 设计稿版本表 | 任务数 × 平均 2~4 版 | 任务下的设计稿版本迭代记录 |
+| 6 | `order_feedbacks` | 订单修改意见表 | 任务数 × 平均 1~3 条 | 针对设计稿版本的修改意见记录 |
+| 7 | `order_reference_files` | 订单参考文件表 | 订单数 × 平均 2~3 个 | 订单/任务级参考资料文件 |
+| 8 | `order_operation_logs` | 订单操作历史表 | 订单数 × 平均 5~10 条 | 全链路操作审计日志 |
 
 ### 2.2 表关系图
 
 ```mermaid
 erDiagram
-    roles ||--o{ users : "role_code"
-    users ||--o{ orders : "created_by"
-    users ||--o{ orders : "designer_id"
-    users ||--o{ orders : "assigned_by"
-    users ||--o{ orders : "approved_by"
-    users ||--o{ orders : "delivered_by"
-    orders ||--o{ design_versions : "order_id"
-    orders ||--o{ order_feedbacks : "order_id"
-    design_versions ||--o{ order_feedbacks : "version_id"
-    orders ||--o{ order_reference_files : "order_id"
-    users ||--o{ design_versions : "uploaded_by"
-    users ||--o{ order_feedbacks : "submitted_by"
-    users ||--o{ order_reference_files : "uploaded_by"
+    roles ||--o{ users : "role_code（逻辑关联）"
+    users ||--o{ orders : "created_by（逻辑关联）"
+    users ||--o{ orders : "designer_id（逻辑关联）"
+    users ||--o{ orders : "assigned_by（逻辑关联）"
+    users ||--o{ orders : "approved_by（逻辑关联）"
+    users ||--o{ orders : "delivered_by（逻辑关联）"
+    orders ||--o{ design_versions : "order_id（物理外键）"
+    orders ||--o{ order_feedbacks : "order_id（物理外键）"
+    design_versions ||--o{ order_feedbacks : "version_id（物理外键）"
+    orders ||--o{ order_reference_files : "order_id（物理外键）"
+    users ||--o{ design_versions : "uploaded_by（逻辑关联）"
+    users ||--o{ order_feedbacks : "submitted_by（逻辑关联）"
+    users ||--o{ order_reference_files : "uploaded_by（逻辑关联）"
+    orders ||--o{ order_tasks : "order_id（物理外键）"
+    users ||--o{ order_tasks : "designer_id（物理外键）"
+    order_tasks ||--o{ design_versions : "task_id（物理外键）"
+    order_tasks ||--o{ order_feedbacks : "task_id（物理外键）"
+    order_tasks ||--o{ order_reference_files : "task_id（物理外键）"
+    orders ||--o{ order_operation_logs : "order_id（物理外键）"
+    order_tasks ||--o{ order_operation_logs : "逻辑关联"
 
     roles {
         bigint id PK
@@ -95,7 +104,7 @@ erDiagram
         varchar name
         varchar role
         varchar phone
-        tinyint is_locked
+        tinyint locked
         datetime last_login_at
         datetime created_at
         datetime updated_at
@@ -120,7 +129,7 @@ erDiagram
         datetime assigned_at
         bigint approved_by FK
         datetime approved_at
-        bigint final_version_id FK
+        bigint final_version_id "逻辑关联"
         bigint delivered_by FK
         datetime delivered_at
         varchar deliver_remark
@@ -134,7 +143,9 @@ erDiagram
     design_versions {
         bigint id PK
         bigint order_id FK
+        bigint task_id FK
         varchar version_no
+        varchar file_id
         varchar file_url
         varchar file_name
         bigint file_size
@@ -151,6 +162,7 @@ erDiagram
     order_feedbacks {
         bigint id PK
         bigint order_id FK
+        bigint task_id FK
         bigint version_id FK
         text content
         varchar status
@@ -165,6 +177,8 @@ erDiagram
     order_reference_files {
         bigint id PK
         bigint order_id FK
+        bigint task_id FK
+        varchar file_id
         varchar file_url
         varchar file_name
         bigint file_size
@@ -174,9 +188,51 @@ erDiagram
         datetime updated_at
         tinyint is_deleted
     }
+
+    order_tasks {
+        bigint id PK
+        bigint order_id FK
+        varchar task_no
+        varchar material_type
+        int quantity
+        varchar specification
+        varchar usage_desc
+        date deadline
+        varchar remark
+        varchar status
+        bigint designer_id FK
+        bigint assigned_by
+        datetime assigned_at
+        varchar assign_remark
+        bigint approved_by
+        datetime approved_at
+        bigint final_version_id "逻辑关联"
+        varchar approve_remark
+        int sort_order
+        int version
+        datetime created_at
+        datetime updated_at
+        tinyint is_deleted
+    }
+
+    order_operation_logs {
+        bigint id PK
+        bigint order_id FK
+        bigint task_id "逻辑关联"
+        varchar operation_type
+        varchar description
+        varchar before_value
+        varchar after_value
+        bigint operator_id
+        varchar operator_name
+        varchar operator_role
+        datetime operated_at
+        varchar client_ip
+    }
 ```
 
-> 注：本系统不使用物理外键约束，数据一致性由应用层 Service 事务保障。图中 FK 标识仅表示逻辑关联关系。
+> 注：系统已启用 **10 条物理外键**（清单见 §5.3），删除策略统一 `ON DELETE RESTRICT`、更新策略 `ON UPDATE CASCADE`。
+> `orders.final_version_id` 与 `order_operation_logs.task_id` 仅为逻辑关联，不建物理外键（前者规避循环依赖，后者不在确认清单内）。
 
 ---
 
@@ -212,7 +268,7 @@ erDiagram
 | name | VARCHAR(20) | 是 | — | name | 用户姓名 |
 | role | VARCHAR(32) | 是 | — | role | 角色编码（UserRole枚举：AM/BL/DS） |
 | phone | VARCHAR(11) | 否 | NULL | phone | 手机号 |
-| is_locked | TINYINT(1) | 是 | 0 | is_locked | 是否锁定（0-否 1-是） |
+| locked | TINYINT(1) | 否 | 0 | locked | 是否锁定（0-否 1-是） |
 | last_login_at | DATETIME | 否 | NULL | last_login_at | 最后登录时间 |
 | created_at | DATETIME | 是 | CURRENT_TIMESTAMP | created_at | 创建时间 |
 | updated_at | DATETIME | 是 | CURRENT_TIMESTAMP ON UPDATE | — | 更新时间 |
@@ -251,7 +307,7 @@ erDiagram
 | assigned_at | DATETIME | 否 | NULL | assigned_at | 分派时间 |
 | approved_by | BIGINT | 否 | NULL | approved_by | 定稿人ID |
 | approved_at | DATETIME | 否 | NULL | approved_at | 定稿时间 |
-| final_version_id | BIGINT | 否 | NULL | final_version_id | 定稿版本ID |
+| final_version_id | BIGINT | 否 | NULL | final_version_id | 定稿版本ID（创建时为 NULL，版本确认后 UPDATE 回填；仅逻辑关联，无物理外键） |
 | delivered_by | BIGINT | 否 | NULL | delivered_by | 交付人ID |
 | delivered_at | DATETIME | 否 | NULL | delivered_at | 交付时间 |
 | deliver_remark | VARCHAR(100) | 否 | NULL | deliver_remark | 交付备注 |
@@ -277,15 +333,61 @@ erDiagram
 
 **乐观锁实现：** `version` 字段 + MyBatis-Plus `@Version` 注解，每次更新时自动 `version = version + 1`，版本不匹配则更新行数为 0，Service 层抛出 `ORDER_VERSION_CONFLICT` 异常。
 
+> **反向引用说明：** `orders.final_version_id` 允许 NULL。创建订单时该字段留空，待 `design_versions` 落库并确认终稿后，通过 `UPDATE orders SET final_version_id = ?` 回填。为避免 `orders` 与 `design_versions` 之间形成循环外键依赖，该字段**不建物理外键**，仅作文档级逻辑关联。
+
 ---
 
-### 3.4 design_versions（设计稿版本表）
+### 3.4 order_tasks（物料任务表）
+
+| 字段名 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| id | BIGINT | 是 | AUTO_INCREMENT | 主键ID |
+| order_id | BIGINT | 是 | — | 关联订单ID（物理外键 → orders.id） |
+| task_no | VARCHAR(20) | 是 | — | 任务编号（T-001…），与 order_id 组合唯一 |
+| material_type | VARCHAR(32) | 是 | — | 物料类型（MaterialType枚举） |
+| quantity | INT | 是 | — | 数量 |
+| specification | VARCHAR(200) | 是 | — | 规格说明 |
+| usage_desc | VARCHAR(200) | 否 | NULL | 使用场景说明 |
+| deadline | DATE | **是** | — | 任务截止日期（不可为空） |
+| remark | VARCHAR(500) | 否 | NULL | 任务备注 |
+| status | VARCHAR(32) | 是 | CREATED | 任务状态（与订单 4 态一致） |
+| designer_id | BIGINT | 否 | NULL | 设计负责人ID（物理外键 → users.id） |
+| assigned_by | BIGINT | 否 | NULL | 分派人ID |
+| assigned_at | DATETIME | 否 | NULL | 分派时间 |
+| assign_remark | VARCHAR(200) | 否 | NULL | 分派备注 |
+| approved_by | BIGINT | 否 | NULL | 定稿人ID |
+| approved_at | DATETIME | 否 | NULL | 定稿时间 |
+| final_version_id | BIGINT | 否 | NULL | 定稿版本ID（逻辑关联，无物理外键） |
+| approve_remark | VARCHAR(200) | 否 | NULL | 审核备注 |
+| sort_order | INT | 是 | 0 | 任务展示顺序 |
+| version | INT | 是 | 0 | 乐观锁版本号 |
+| created_at | DATETIME | 是 | CURRENT_TIMESTAMP | 创建时间 |
+| updated_at | DATETIME | 是 | CURRENT_TIMESTAMP ON UPDATE | 更新时间 |
+| is_deleted | TINYINT(1) | 是 | 0 | 是否删除 |
+
+**索引：**
+
+| 索引名 | 类型 | 字段 | 用途 |
+|---|---|---|---|
+| PRIMARY | 主键 | id | 主键 |
+| uk_order_task | 唯一索引 | order_id, task_no | 同一订单内任务编号唯一 |
+| idx_order_id | 普通索引 | order_id | 查询订单下的任务 + 外键配套索引 |
+| idx_designer_id | 普通索引 | designer_id | 设计师任务查询 + 外键配套索引 |
+| idx_status | 普通索引 | status | 按任务状态筛选 |
+| idx_deadline | 普通索引 | deadline | 按截止日期筛选 |
+| idx_is_deleted | 普通索引 | is_deleted | 软删除过滤 |
+
+---
+
+### 3.5 design_versions（设计稿版本表）
 
 | 字段名 | 类型 | 必填 | 默认值 | GLOSSARY 对应 | 说明 |
 |---|---|---|---|---|---|
 | id | BIGINT | 是 | AUTO_INCREMENT | id | 主键ID |
-| order_id | BIGINT | 是 | — | order_id | 关联订单ID |
+| order_id | BIGINT | 是 | — | order_id | 关联订单ID（物理外键 → orders.id） |
+| task_id | BIGINT | 否 | NULL | task_id | 关联任务ID（物理外键 → order_tasks.id，可空） |
 | version_no | VARCHAR(10) | 是 | — | version_no | 版本号（V1/V2/V3...） |
+| file_id | VARCHAR(500) | 是 | — | file_id | 对象存储文件唯一标识 |
 | file_url | VARCHAR(500) | 是 | — | file_url | 文件访问URL（OSS） |
 | file_name | VARCHAR(200) | 是 | — | fileName | 原始文件名 |
 | file_size | BIGINT | 是 | — | fileSize | 文件大小（字节） |
@@ -304,20 +406,22 @@ erDiagram
 |---|---|---|---|---|
 | PRIMARY | 主键 | id | 主键 | — |
 | uk_order_version | 唯一索引 | order_id, version_no | 同一订单版本号唯一 | ✅ 必须（以复合索引体现 order_id + version_no） |
-| idx_order_id | 普通索引 | order_id | 查询订单下的所有版本 | 补充 |
+| idx_order_id | 普通索引 | order_id | 查询订单下的所有版本 |
+| idx_task_id | 普通索引 | task_id | 查询任务下的版本 + 外键配套索引 | 补充 |
 | idx_is_final | 普通索引 | is_final | 快速定位最终版 | 补充 |
 | idx_uploaded_at | 普通索引 | uploaded_at | 按上传时间排序 | 补充 |
 | idx_is_deleted | 普通索引 | is_deleted | 软删除过滤 | 补充 |
 
 ---
 
-### 3.5 order_feedbacks（订单修改意见表）
+### 3.6 order_feedbacks（订单修改意见表）
 
 | 字段名 | 类型 | 必填 | 默认值 | GLOSSARY 对应 | 说明 |
 |---|---|---|---|---|---|
 | id | BIGINT | 是 | AUTO_INCREMENT | id | 主键ID |
-| order_id | BIGINT | 是 | — | order_id | 关联订单ID |
-| version_id | BIGINT | 是 | — | version_id | 关联设计稿版本ID |
+| order_id | BIGINT | 是 | — | order_id | 关联订单ID（物理外键 → orders.id） |
+| task_id | BIGINT | 否 | NULL | task_id | 关联任务ID（物理外键 → order_tasks.id，可空） |
+| version_id | BIGINT | 是 | — | version_id | 关联设计稿版本ID（物理外键 → design_versions.id） |
 | content | TEXT | 是 | — | content | 修改意见内容 |
 | status | VARCHAR(32) | 是 | PENDING | status | 意见状态（FeedbackStatus枚举） |
 | submitted_by | BIGINT | 是 | — | submitted_by | 提交人ID |
@@ -333,19 +437,22 @@ erDiagram
 |---|---|---|---|---|
 | PRIMARY | 主键 | id | 主键 | — |
 | idx_order_feedback_status | 复合索引 | order_id, status | 按订单+状态查询意见 | ✅ 必须（order_id, feedback_status） |
-| idx_version_id | 普通索引 | version_id | 查询某版本的意见 | 补充 |
+| idx_version_id | 普通索引 | version_id | 查询某版本的意见 |
+| idx_task_id | 普通索引 | task_id | 查询任务下的意见 | 补充 |
 | idx_submitted_by | 普通索引 | submitted_by | 按提交人筛选 | 补充 |
 | idx_submitted_at | 普通索引 | submitted_at | 按提交时间排序 | 补充 |
 | idx_is_deleted | 普通索引 | is_deleted | 软删除过滤 | 补充 |
 
 ---
 
-### 3.6 order_reference_files（订单参考文件表）
+### 3.7 order_reference_files（订单参考文件表）
 
 | 字段名 | 类型 | 必填 | 默认值 | GLOSSARY 对应 | 说明 |
 |---|---|---|---|---|---|
 | id | BIGINT | 是 | AUTO_INCREMENT | id | 主键ID |
-| order_id | BIGINT | 是 | — | order_id | 关联订单ID |
+| order_id | BIGINT | 是 | — | order_id | 关联订单ID（物理外键 → orders.id） |
+| task_id | BIGINT | 否 | NULL | task_id | 关联任务ID（物理外键 → order_tasks.id，可空；为空表示订单级附件） |
+| file_id | VARCHAR(500) | 是 | — | file_id | 对象存储文件唯一标识 |
 | file_url | VARCHAR(500) | 是 | — | file_url | 文件访问URL（OSS） |
 | file_name | VARCHAR(200) | 是 | — | fileName | 原始文件名 |
 | file_size | BIGINT | 是 | — | fileSize | 文件大小（字节） |
@@ -361,8 +468,39 @@ erDiagram
 |---|---|---|---|
 | PRIMARY | 主键 | id | 主键 |
 | idx_order_id | 普通索引 | order_id | 查询订单下的参考文件 |
+| idx_task_id | 普通索引 | task_id | 查询任务下的参考文件 + 外键配套索引 |
 | idx_uploaded_at | 普通索引 | uploaded_at | 按上传时间排序 |
 | idx_is_deleted | 普通索引 | is_deleted | 软删除过滤 |
+
+---
+
+### 3.8 order_operation_logs（订单操作历史表）
+
+| 字段名 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| id | BIGINT | 是 | AUTO_INCREMENT | 主键ID |
+| order_id | BIGINT | 是 | — | 关联订单ID（物理外键 → orders.id） |
+| task_id | BIGINT | 否 | NULL | 关联任务ID（逻辑关联，无物理外键） |
+| operation_type | VARCHAR(32) | 是 | — | 操作类型（OperationType枚举） |
+| description | VARCHAR(500) | 否 | NULL | 操作描述 |
+| before_value | VARCHAR(500) | 否 | NULL | 变更前值 |
+| after_value | VARCHAR(500) | 否 | NULL | 变更后值 |
+| operator_id | BIGINT | 是 | — | 操作人ID |
+| operator_name | VARCHAR(20) | 否 | NULL | 操作人姓名（冗余，便于审计） |
+| operator_role | VARCHAR(32) | 否 | NULL | 操作人角色编码 |
+| operated_at | DATETIME | 是 | CURRENT_TIMESTAMP | 操作时间 |
+| client_ip | VARCHAR(64) | 否 | NULL | 客户端IP |
+
+**索引：**
+
+| 索引名 | 类型 | 字段 | 用途 |
+|---|---|---|---|
+| PRIMARY | 主键 | id | 主键 |
+| idx_order_id | 普通索引 | order_id | 查询订单操作历史 + 外键配套索引 |
+| idx_task_id | 普通索引 | task_id | 查询任务操作历史 |
+| idx_operated_at | 普通索引 | operated_at | 按时间倒序查询 |
+
+> 操作日志为不可变审计数据：**不提供 `is_deleted` / `version` 字段**，仅允许追加查询，不做更新删除。
 
 ---
 
@@ -374,14 +512,12 @@ erDiagram
 
 | 存储值 | 中文名 | 说明 |
 |---|---|---|
-| WAIT_CREATE | 待登记 | 草稿状态，MVP不落库 |
-| CREATED | 已登记（待分派） | 已提交，等待分派 |
-| ASSIGNED | 已分派 | 已指定设计人员 |
-| DESIGNING | 设计中 | 设计人员正在处理（含修改中） |
-| WAIT_APPROVE | 待定稿 | 已提交设计稿，等待审核 |
-| APPROVED | 已定稿 | 业务负责人确认终稿 |
-| DELIVERED | 已交付 | 已交付归档 |
-| CANCELLED | 已作废 | 订单作废终止 |
+| CREATED | 已登记 | 订单已提交，等待分派 |
+| ASSIGNED | 已分派 | 已指定设计人员，任务执行中 |
+| REVIEWING | 审核中 | 设计稿已提交，等待业务负责人确认 |
+| FINISHED | 已完结 | 终稿确认并完成交付 |
+
+> **仅保留以上 4 态。** 旧 8 态中的 `WAIT_CREATE` / `DESIGNING` / `WAIT_APPROVE` / `APPROVED` / `DELIVERED` / `CANCELLED` 已废弃，不再落库、不再对外展示；历史数据如需兼容，由代码层 `OrderStatusEnum.safeOf` 做只读映射。
 
 ### 4.2 MaterialType（物料类型）
 
@@ -434,6 +570,31 @@ erDiagram
 Cursor 分页的核心查询条件为 `WHERE created_at < lastCursorTime OR (created_at = lastCursorTime AND id < lastCursorId) ORDER BY created_at DESC, id DESC LIMIT ?`。使用 (created_at, id) 联合索引可以让 MySQL 在索引树上直接定位到游标位置，无需回表或文件排序，保证大数据量下仍保持稳定查询性能。
 
 **设计师视角的列表**使用 (assigned_at, id DESC) 复合索引，因为设计师的"我的任务"是按分派时间排序的。
+
+---
+
+### 5.3 外键约束清单（物理外键共 10 条）
+
+| # | 子表 | 外键字段 | 主表 | 主表字段 | ON DELETE | ON UPDATE | 字段可空 |
+|---|---|---|---|---|---|---|---|
+| 1 | order_tasks | order_id | orders | id | RESTRICT | CASCADE | 否 |
+| 2 | order_tasks | designer_id | users | id | RESTRICT | CASCADE | 是 |
+| 3 | design_versions | order_id | orders | id | RESTRICT | CASCADE | 否 |
+| 4 | design_versions | task_id | order_tasks | id | RESTRICT | CASCADE | 是 |
+| 5 | order_feedbacks | order_id | orders | id | RESTRICT | CASCADE | 否 |
+| 6 | order_feedbacks | task_id | order_tasks | id | RESTRICT | CASCADE | 是 |
+| 7 | order_feedbacks | version_id | design_versions | id | RESTRICT | CASCADE | 否 |
+| 8 | order_reference_files | order_id | orders | id | RESTRICT | CASCADE | 否 |
+| 9 | order_reference_files | task_id | order_tasks | id | RESTRICT | CASCADE | 是 |
+| 10 | order_operation_logs | order_id | orders | id | RESTRICT | CASCADE | 否 |
+
+**约束说明：**
+
+1. 所有物理外键统一 `ON DELETE RESTRICT` + `ON UPDATE CASCADE`，**禁止 `ON DELETE CASCADE`**。
+2. 可空外键列（`design_versions.task_id`、`order_feedbacks.task_id`、`order_reference_files.task_id`）允许 `NULL`，`NULL` 不参与外键校验。
+3. `users.role` 保持 `VARCHAR(32)` 角色编码，**不建 `role_id` 外键**，`roles` 表仅作字典参考。
+4. `orders.final_version_id` 与 `order_operation_logs.task_id` **不建物理外键**：前者规避 `orders ↔ design_versions` 循环依赖，后者不在确认清单内；二者均为逻辑关联。
+5. `orders.created_by` / `designer_id` / `assigned_by` / `approved_by` / `delivered_by` 等审计字段**不建物理外键**，按确认清单执行。
 
 ---
 
@@ -534,7 +695,7 @@ Cursor 分页的核心查询条件为 `WHERE created_at < lastCursorTime OR (cre
 | name | name | name | name | ✅ |
 | role | role | role | role | ✅ |
 | phone | phone | phone | phone | ✅ |
-| is_locked | is_locked | locked | isLocked | ✅ |
+| locked | locked | locked | isLocked | ✅ |
 | last_login_at | last_login_at | lastLoginAt | lastLoginAt | ✅ |
 | created_at | created_at | createdAt | createdAt | ✅ |
 | is_deleted | is_deleted | deleted | isDeleted | ✅ |
@@ -586,9 +747,9 @@ Cursor 分页的核心查询条件为 `WHERE created_at < lastCursorTime OR (cre
 
 | 禁止项 | 说明 |
 |---|---|
-| ❌ 禁止新增第 7 张业务表 | 如需扩展，必须先更新 GLOSSARY 与本设计文档 |
+| ❌ 禁止新增第 9 张业务表 | 如需扩展，必须先更新 GLOSSARY 与本设计文档 |
 | ❌ 禁止使用 MySQL ENUM 类型 | 所有枚举用 VARCHAR(32) 存编码值 |
-| ❌ 禁止使用物理外键 + 级联删除 | 数据一致性由应用层事务保障 |
+| ❌ 禁止使用 ON DELETE CASCADE | 物理外键统一 `ON DELETE RESTRICT`，删除只能走应用层软删除 |
 | ❌ 禁止使用 offset 分页 | 所有列表使用 Cursor 游标分页 |
 | ❌ 禁止在数据库中存储文件二进制 | 所有文件直传 OSS，数据库仅存 URL |
 | ❌ 禁止硬编码枚举值 | 枚举值定义在代码枚举类中，与 GLOSSARY 一致 |
