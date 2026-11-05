@@ -3,6 +3,7 @@ package com.peak.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.peak.common.constants.ErrorCode;
+import com.peak.common.context.UserContext;
 import com.peak.common.enums.UserRole;
 import com.peak.dto.PresignRequest;
 import com.peak.dto.ReferenceFileConfirmRequest;
@@ -258,6 +259,8 @@ public class FileServiceImpl implements FileService {
     }
 
     private ReferenceFileVO upsertReferenceFile(ReferenceFileConfirmRequest dto, Long userId) {
+        checkOrderWritePermission(dto.getOrderId(), userId);
+
         Path path = filePath(dto.getFileId());
         if (!Files.exists(path)) {
             throw new BusinessException(ErrorCode.PARAM_VALIDATION_ERROR,
@@ -299,6 +302,23 @@ public class FileServiceImpl implements FileService {
     }
 
     // ------------------------------------------------------------------ 内部方法
+
+    /**
+     * 参考文件写入的数据范围校验：仅订单创建人可写，BL 负责全部订单可跳过。
+     * upload 带 orderId 与 confirm 都会经过 upsertReferenceFile，因此在此统一拦截。
+     */
+    private void checkOrderWritePermission(Long orderId, Long userId) {
+        Order order = orderMapper.selectById(orderId);
+        if (order == null) {
+            throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在");
+        }
+        if (UserRole.BL.getCode().equals(UserContext.getRole())) {
+            return;
+        }
+        if (!order.getCreatedBy().equals(userId)) {
+            throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权操作他人订单");
+        }
+    }
 
     private void fillReferenceFile(OrderReferenceFile ref, long fileSize, String fileName) {
         ref.setFileUrl(resolveAccessUrl(ref.getFileId()));

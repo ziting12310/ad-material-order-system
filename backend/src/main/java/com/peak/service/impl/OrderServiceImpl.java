@@ -70,6 +70,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -261,10 +262,11 @@ public class OrderServiceImpl implements OrderService {
     @Transactional(rollbackFor = Exception.class)
     public OrderCreateResponseVO createOrder(OrderCreateRequest dto, Long creatorId) {
         requireRole(creatorId, UserRole.AM.getCode());
-        String orderNo = generateOrderNo();
 
         Order order = new Order();
-        order.setOrderNo(orderNo);
+        // order_no 为 NOT NULL + 唯一索引，先用临时唯一值占位，
+        // 插入拿到自增 ID 后再回写正式编号 ORD-YYYY-NNNNN
+        order.setOrderNo(tempOrderNo());
         order.setCustomerName(StringEscapeUtils.escapeHtml4(dto.getCustomerName()));
         order.setContactName(StringEscapeUtils.escapeHtml4(dto.getContactName()));
         order.setContactPhone(dto.getContactPhone());
@@ -293,6 +295,10 @@ public class OrderServiceImpl implements OrderService {
         }
 
         orderMapper.insert(order);
+
+        // 用数据库自增 ID 生成正式订单号并回写：ID 全局唯一，天然不受并发影响
+        order.setOrderNo(buildOrderNo(order.getId()));
+        orderMapper.updateById(order);
 
         // 批量创建物料任务
         if (dto.getTasks() != null && !dto.getTasks().isEmpty()) {
@@ -1137,23 +1143,15 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private String generateOrderNo() {
+    /** 插入前的临时订单号：TMP- + 16 位 UUID 片段，长度 20，与 order_no 列宽一致且必不重复 */
+    private String tempOrderNo() {
+        return "TMP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+    }
+
+    /** 正式订单号：ORD-YYYY-NNNNN，序号取自数据库自增 ID，并发安全 */
+    private String buildOrderNo(Long orderId) {
         String year = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy"));
-        String prefix = "ORD-" + year + "-";
-        List<Order> yearOrders = orderMapper.selectList(
-                new LambdaQueryWrapper<Order>().likeRight(Order::getOrderNo, prefix)
-        );
-        int nextSeq = 1;
-        if (!yearOrders.isEmpty()) {
-            int maxSeq = yearOrders.stream()
-                    .mapToInt(o -> {
-                        try {
-                            return Integer.parseInt(o.getOrderNo().substring(prefix.length()));
-                        } catch (Exception e) { return 0; }
-                    }).max().orElse(0);
-            nextSeq = maxSeq + 1;
-        }
-        return prefix + String.format("%05d", nextSeq);
+        return "ORD-" + year + "-" + String.format("%05d", orderId);
     }
 
     private Map<Long, String> batchLoadUserNames(List<Long> userIds) {
