@@ -139,6 +139,15 @@ export function assignTask(orderId, taskId, data) {
 }
 
 /**
+ * 订单级分派（CREATED 状态无任务时使用）
+ * PUT /api/v1/orders/{orderId}/assign
+ * 入参：{ designerId, assignRemark, version }
+ */
+export function assignOrder(orderId, data) {
+    return request.put(`/orders/${orderId}/assign`, data)
+}
+
+/**
  * 设计师接单
  * PUT /api/v1/orders/{orderId}/tasks/{taskId}/accept
  */
