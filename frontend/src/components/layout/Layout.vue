@@ -53,7 +53,12 @@
               <el-avatar :size="32" style="background: var(--primary-color)">
                 {{ userStore.userInfo?.name?.charAt(0) }}
               </el-avatar>
-              <span class="user-name">{{ userStore.userInfo?.name }}</span>
+              <div class="user-meta">
+                <span class="user-name">{{ userStore.userInfo?.name || '用户' }}</span>
+                <el-tag :type="roleTagType" size="small" effect="light" round class="user-role-tag">
+                  {{ roleLabel }}
+                </el-tag>
+              </div>
               <el-icon><CaretBottom /></el-icon>
             </div>
             <template #dropdown>
@@ -136,11 +141,40 @@ const allMenus = [
   { path: '/archive', title: '归档查询', icon: 'FolderChecked' }
 ]
 
+// 规范化角色（统一转大写，兼容后端可能返回的不同格式）
+const currentRole = computed(() => {
+  const raw = userStore.userInfo?.role
+  if (!raw) return ''
+  const upper = String(raw).toUpperCase().trim()
+  // 兼容 role code 别名
+  const aliasMap = {
+    'ACCOUNT_MANAGER': 'AM',
+    'BUSINESS_LEADER': 'BL',
+    'DESIGNER': 'DS',
+    'DESIGN_STAFF': 'DS'
+  }
+  return aliasMap[upper] || upper
+})
+
 // 按角色过滤菜单
 const menuList = computed(() => {
-  const role = userStore.userInfo?.role
+  const role = currentRole.value
+  // 没有角色时只显示无角色限制的菜单（工作台 + 归档）
   if (!role) return allMenus.filter(m => !m.roles)
+  // 有角色时：无角色限制的 + 包含当前角色的
   return allMenus.filter(m => !m.roles || m.roles.includes(role))
+})
+
+// 当前角色名称
+const roleLabel = computed(() => {
+  const map = { AM: '客户经理', BL: '业务负责人', DS: '设计人员' }
+  return map[currentRole.value] || currentRole.value || '未知角色'
+})
+
+// 当前角色标签颜色
+const roleTagType = computed(() => {
+  const map = { AM: 'primary', BL: 'success', DS: 'warning' }
+  return map[currentRole.value] || 'info'
 })
 
 // 当前激活菜单
@@ -272,9 +306,23 @@ function handleCommand(cmd) {
   cursor: pointer;
 }
 
+.user-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+}
+
 .user-name {
   font-size: 14px;
   color: var(--gray-700);
+}
+
+.user-role-tag {
+  font-size: 11px;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 16px;
 }
 
 /* ========== 主内容 ========== */

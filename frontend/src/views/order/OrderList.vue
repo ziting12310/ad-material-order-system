@@ -3,9 +3,19 @@
     <!-- 顶部栏 -->
     <div class="page-header">
       <h2 class="page-title">订单管理</h2>
-      <el-button type="primary" :icon="Plus" @click="handleCreate">
-        新建订单
-      </el-button>
+      <div class="header-actions">
+        <el-alert
+          v-if="isBL"
+          type="info"
+          :closable="false"
+          show-icon
+          title="待分派提醒"
+          class="bl-reminder"
+        />
+        <el-button v-if="isAM" type="primary" :icon="Plus" @click="handleCreate">
+          新建订单
+        </el-button>
+      </div>
     </div>
 
     <!-- 筛选卡片 -->
@@ -118,7 +128,7 @@
             {{ formatDateTime(row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" :width="isBL ? 260 : 180" fixed="right" align="center">
+        <el-table-column label="操作" :width="actionColWidth" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleView(row)">
               查看
@@ -133,7 +143,7 @@
               分派
             </el-button>
             <el-button
-              v-if="row.status === 'CREATED'"
+              v-if="isAM && row.status === 'CREATED'"
               type="primary"
               link
               size="small"
@@ -142,7 +152,7 @@
               编辑
             </el-button>
             <el-button
-              v-if="row.status === 'CREATED'"
+              v-if="isAM && row.status === 'CREATED'"
               type="danger"
               link
               size="small"
@@ -171,7 +181,7 @@
         </div>
         <el-empty
           v-else-if="!loading"
-          :description="hasFilters ? '暂无符合条件的数据' : '暂无数据'"
+          :description="emptyText"
           :image-size="100"
         />
       </div>
@@ -262,12 +272,29 @@ import OrderCreateDialog from './OrderCreateDialog.vue'
 import OrderDetailDrawer from './OrderDetailDrawer.vue'
 
 const userStore = useUserStore()
+const isAM = computed(() => userStore.userInfo?.role === 'AM')
 const isBL = computed(() => userStore.userInfo?.role === 'BL')
+const isDS = computed(() => userStore.userInfo?.role === 'DS')
 
 // 是否有筛选条件
 const hasFilters = computed(() => {
   return !!(filters.keyword || filters.materialType || filters.status ||
     (filters.deliveryDateRange && filters.deliveryDateRange.length === 2))
+})
+
+// 操作列宽度
+const actionColWidth = computed(() => {
+  if (isAM.value) return 240
+  if (isBL.value) return 180
+  return 120
+})
+
+// 空状态文案
+const emptyText = computed(() => {
+  if (hasFilters.value) return '暂无符合条件的数据'
+  if (isAM.value) return '还没有订单，点击右上角"新建订单"开始吧'
+  if (isBL.value) return '暂无订单数据'
+  return '暂无数据'
 })
 
 // ---------- 常量 ----------
@@ -603,6 +630,26 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bl-reminder {
+  --el-alert-padding-y: 8px;
+  --el-alert-padding-x: 12px;
+}
+
+.bl-reminder :deep(.el-alert__content) {
+  padding: 0;
+}
+
+.bl-reminder :deep(.el-alert__title) {
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .page-title {

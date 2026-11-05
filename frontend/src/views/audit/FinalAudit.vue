@@ -4,6 +4,9 @@
     功能：统计卡片 + Tab切换（待审核/审核记录/已归档）+ 任务表格 + 定稿/驳回弹窗 + 游标分页
   -->
   <div class="final-audit">
+    <!-- 页面标题 -->
+    <h2 class="page-title">{{ pageTitle }}</h2>
+
     <!-- 顶部统计卡片 -->
     <el-row :gutter="12" class="stat-row">
       <el-col :xs="24" :sm="8">
@@ -31,7 +34,7 @@
       <el-col :xs="24" :sm="8">
         <div class="stat-card stat-rejected" @click="switchToRejected">
           <div class="stat-icon-wrap">
-            <el-icon :size="24"><CircleCloseFilled /></el-icon>
+            <el-icon :size="24"><CloseCircleFilled /></el-icon>
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.rejected }}</div>
@@ -158,9 +161,16 @@
             <div v-else-if="pendingList.length > 0" class="no-more">
               没有更多了
             </div>
+            <div v-else-if="pendingError && !pendingLoading" class="error-state">
+              <el-result icon="error" title="加载失败" sub-title="数据加载失败，请检查后端服务是否正常">
+                <template #extra>
+                  <el-button type="primary" @click="handlePendingSearch">重新加载</el-button>
+                </template>
+              </el-result>
+            </div>
             <el-empty
               v-else-if="!pendingLoading"
-              :description="hasPendingFilters ? '暂无符合条件的数据' : '暂无数据'"
+              :description="hasPendingFilters ? '暂无符合条件的数据' : '暂无待审核任务'"
               :image-size="100"
             />
           </div>
@@ -540,6 +550,20 @@ import {
   getTaskStatusLabel,
   getTaskStatusType
 } from '@/constants'
+import { useUserStore } from '@/stores/user'
+
+// ---------- 角色 ----------
+const userStore = useUserStore()
+const isAM = computed(() => userStore.userInfo?.role === 'AM')
+const isBL = computed(() => userStore.userInfo?.role === 'BL')
+const isDS = computed(() => userStore.userInfo?.role === 'DS')
+
+// 页面标题
+const pageTitle = computed(() => {
+  if (isAM.value) return '客户确认'
+  if (isBL.value) return '定稿审核归档'
+  return '定稿审核'
+})
 
 // ---------- 常量 ----------
 const PAGE_SIZE = 20
@@ -610,6 +634,7 @@ const pendingLoadingMore = ref(false)
 const pendingList = ref([])
 const pendingNextCursor = ref(null)
 const pendingHasMore = ref(true)
+const pendingError = ref(false)
 
 async function fetchPendingList(isLoadMore = false) {
   if (isLoadMore) {
@@ -617,6 +642,7 @@ async function fetchPendingList(isLoadMore = false) {
     pendingLoadingMore.value = true
   } else {
     pendingLoading.value = true
+    pendingError.value = false
   }
 
   try {
@@ -642,6 +668,7 @@ async function fetchPendingList(isLoadMore = false) {
     pendingNextCursor.value = res.nextCursor || null
     pendingHasMore.value = !!res.hasMore
   } catch (e) {
+    pendingError.value = true
     if (!isLoadMore) {
       pendingList.value = []
     }
@@ -963,6 +990,13 @@ onMounted(() => {
   gap: 16px;
 }
 
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
 /* ========== 统计卡片 ========== */
 .stat-row {
   margin-bottom: 0;
@@ -1099,6 +1133,10 @@ onMounted(() => {
 .no-more {
   font-size: 13px;
   color: var(--gray-400);
+}
+
+.error-state {
+  padding: 40px 0;
 }
 
 /* ========== 审核记录时间线 ========== */

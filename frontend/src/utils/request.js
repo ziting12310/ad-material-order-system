@@ -2,6 +2,11 @@
  * Axios 请求封装
  * 后端 BaseURL：http://localhost:8080/api/v1
  * 统一响应结构：{ code, message, data } — code=SUCCESS 为成功
+ *
+ * 错误提示策略：
+ * - 默认不弹全局错误提示（由调用方页面自己处理，显示空状态等）
+ * - 需要弹提示的接口，传 config.silent = false
+ * - 401 始终会弹提示并跳登录
  */
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
@@ -24,11 +29,21 @@ function redirectLogin() {
     if (r && r.currentRoute.value.path !== '/login') {
         r.push('/login')
     } else {
-        // 兜底：router 还没拿到就直接改 hash
         if (window.location.pathname !== '/login') {
             window.location.href = '/login'
         }
     }
+}
+
+// 防抖：同类型错误 3 秒内只弹一次
+let lastErrorMsg = ''
+let lastErrorTime = 0
+function showError(msg) {
+    const now = Date.now()
+    if (msg === lastErrorMsg && now - lastErrorTime < 3000) return
+    lastErrorMsg = msg
+    lastErrorTime = now
+    ElMessage.error(msg)
 }
 
 const request = axios.create({
@@ -60,7 +75,9 @@ request.interceptors.response.use(
                 return res.data
             }
             // 业务失败
-            ElMessage.error(res.message || '操作失败')
+            if (!response.config.silent) {
+                showError(res.message || '操作失败')
+            }
             return Promise.reject(new Error(res.message || '操作失败'))
         }
         // 非 ResultVO（如文件流）直接透传
@@ -70,39 +87,47 @@ request.interceptors.response.use(
         const status = error.response?.status
         const code = error.response?.data?.code
         const msg = error.response?.data?.message
+        const silent = error.config?.silent
 
-        switch (status) {
-            case 401:
-                // 未授权 / Token 过期 / Token 无效 → 清本地 + 跳登录
+        // 401 始终处理（清登录态 + 跳登录）
+        if (status === 401) {
+            if (!silent) {
                 if (code === 'TOKEN_EXPIRED') {
-                    ElMessage.error('登录已过期，请重新登录')
+                    showError('登录已过期，请重新登录')
                 } else if (code === 'TOKEN_INVALID') {
-                    ElMessage.error('无效的登录凭证')
+                    showError('无效的登录凭证')
                 } else {
-                    ElMessage.error(msg || '请先登录')
+                    showError(msg || '请先登录')
                 }
-                redirectLogin()
-                break
-            case 403:
-                ElMessage.error(msg || '无权访问')
-                break
-            case 404:
-                ElMessage.error(msg || '资源不存在')
-                break
-            case 409:
-                ElMessage.warning(msg || '数据已被修改，请刷新重试')
-                break
-            case 422:
-                ElMessage.warning(msg || '参数校验失败')
-                break
-            default:
-                if (error.code === 'ECONNABORTED') {
-                    ElMessage.error('请求超时，请检查网络')
-                } else if (!error.response) {
-                    ElMessage.error('网络连接失败，请确认后端服务已启动')
-                } else {
-                    ElMessage.error(msg || `服务器错误 (${status})`)
-                }
+            }
+            redirectLogin()
+            return Promise.reject(error)
+        }
+
+        // 其他错误：silent=true 时不弹提示，交给页面处理
+        if (!silent) {
+            switch (status) {
+                case 403:
+                    showError(msg || '无权访问')
+                    break
+                case 404:
+                    showError(msg || '资源不存在')
+                    break
+                case 409:
+                    ElMessage.warning(msg || '数据已被修改，请刷新重试')
+                    break
+                case 422:
+                    ElMessage.warning(msg || '参数校验失败')
+                    break
+                default:
+                    if (error.code === 'ECONNABORTED') {
+                        showError('请求超时，请检查网络')
+                    } else if (!error.response) {
+                        showError('网络连接失败，请确认后端服务已启动')
+                    } else {
+                        showError(msg || `系统繁忙 (${status})`)
+                    }
+            }
         }
         return Promise.reject(error)
     }

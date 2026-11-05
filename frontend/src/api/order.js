@@ -21,7 +21,7 @@ import request from '@/utils/request'
  * @returns {Object} { list, nextCursor, hasMore, total }
  */
 export function listOrders(params) {
-    return request.get('/orders', { params })
+    return request.get('/orders', { params, silent: true })
 }
 
 /**
@@ -29,7 +29,7 @@ export function listOrders(params) {
  * GET /api/v1/orders/{id}
  */
 export function getOrderDetail(id) {
-    return request.get(`/orders/${id}`)
+    return request.get(`/orders/${id}`, { silent: true })
 }
 
 /**
@@ -95,7 +95,7 @@ export function cancelOrder(id, data) {
  * GET /api/v1/orders/{orderId}/tasks
  */
 export function listOrderTasks(orderId) {
-    return request.get(`/orders/${orderId}/tasks`)
+    return request.get(`/orders/${orderId}/tasks`, { silent: true })
 }
 
 /**
@@ -153,7 +153,7 @@ export function acceptTask(orderId, taskId, version) {
  * GET /api/v1/orders/{orderId}/versions
  */
 export function listDesignVersions(orderId) {
-    return request.get(`/orders/${orderId}/versions`)
+    return request.get(`/orders/${orderId}/versions`, { silent: true })
 }
 
 /**
@@ -171,7 +171,7 @@ export function uploadDesignVersion(orderId, data) {
  * GET /api/v1/orders/{orderId}/feedbacks
  */
 export function listFeedbacks(orderId) {
-    return request.get(`/orders/${orderId}/feedbacks`)
+    return request.get(`/orders/${orderId}/feedbacks`, { silent: true })
 }
 
 /**
@@ -189,7 +189,7 @@ export function submitFeedback(orderId, data) {
  * GET /api/v1/orders/{orderId}/reference-files
  */
 export function listReferenceFiles(orderId) {
-    return request.get(`/orders/${orderId}/reference-files`)
+    return request.get(`/orders/${orderId}/reference-files`, { silent: true })
 }
 
 /**

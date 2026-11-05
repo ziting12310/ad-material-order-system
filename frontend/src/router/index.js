@@ -108,7 +108,9 @@ router.beforeEach(async (to, from, next) => {
     }
     // 角色权限校验
     if (to.meta.roles && to.meta.roles.length) {
-      if (!to.meta.roles.includes(userStore.userInfo.role)) {
+      const userRole = userStore.userInfo?.role
+      const normalizedRole = userRole ? String(userRole).toUpperCase().trim() : ''
+      if (!normalizedRole || !to.meta.roles.includes(normalizedRole)) {
         next('/dashboard')
         return
       }

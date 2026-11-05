@@ -4,16 +4,19 @@
     功能：统计卡片 + Tab切换（我的任务/审核记录）+ 筛选 + 任务表格 + 游标分页
   -->
   <div class="design-workbench">
+    <!-- 页面标题 -->
+    <h2 class="page-title">{{ pageTitle }}</h2>
+
     <!-- 顶部统计卡片 -->
     <el-row :gutter="12" class="stat-row">
       <el-col :xs="12" :sm="6">
-        <div class="stat-card stat-assigned" @click="quickFilter('ASSIGNED')">
+        <div class="stat-card stat-assigned" @click="quickFilter(firstStatStatus)">
           <div class="stat-icon-wrap">
             <el-icon :size="22"><Bell /></el-icon>
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats.assigned }}</div>
-            <div class="stat-label">待接单</div>
+            <div class="stat-value">{{ firstStatValue }}</div>
+            <div class="stat-label">{{ firstStatLabel }}</div>
           </div>
         </div>
       </el-col>
@@ -55,8 +58,8 @@
     <!-- Tab 切换 -->
     <el-card class="tab-card" shadow="never">
       <el-tabs v-model="activeTab" class="workbench-tabs">
-        <!-- 我的任务 -->
-        <el-tab-pane label="我的任务" name="tasks">
+        <!-- 任务 Tab（DS=我的任务，BL=全部任务） -->
+        <el-tab-pane :label="isBL ? '全部任务' : '我的任务'" name="tasks">
           <!-- 筛选 -->
           <div class="filter-bar">
             <el-form :model="filters" inline label-width="60px" @submit.prevent>
@@ -67,6 +70,8 @@
                   clearable
                   style="width: 130px"
                 >
+                  <!-- BL 多一个"待分派"状态 -->
+                  <el-option v-if="isBL" label="待分派" value="CREATED" />
                   <el-option label="待接单" value="ASSIGNED" />
                   <el-option label="设计中" value="DESIGNING" />
                   <el-option label="待定稿" value="WAIT_APPROVE" />
@@ -121,6 +126,12 @@
                 {{ getMaterialLabel(row.materialType) }}
               </template>
             </el-table-column>
+            <!-- BL 多一列"设计师" -->
+            <el-table-column v-if="isBL" label="设计师" width="100">
+              <template #default="{ row }">
+                {{ row.designerName || '—' }}
+              </template>
+            </el-table-column>
             <el-table-column prop="quantity" label="数量" width="80" align="right" />
             <el-table-column prop="specification" label="规格" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">
@@ -144,37 +155,60 @@
                 {{ row.deadline || '—' }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160" fixed="right" align="center">
+            <el-table-column label="操作" :width="isBL ? 160 : 160" fixed="right" align="center">
               <template #default="{ row }">
-                <!-- 待接单：显示接单按钮 -->
-                <el-button
-                  v-if="row.status === 'ASSIGNED'"
-                  type="primary"
-                  size="small"
-                  @click="handleAccept(row)"
-                >
-                  接单
-                </el-button>
-                <!-- 设计中：显示上传版本按钮 -->
-                <el-button
-                  v-else-if="row.status === 'DESIGNING'"
-                  type="primary"
-                  size="small"
-                  plain
-                  @click="handleUploadVersion(row)"
-                >
-                  上传版本
-                </el-button>
-                <!-- 其他状态：查看详情 -->
-                <el-button
-                  v-else
-                  type="primary"
-                  link
-                  size="small"
-                  @click="handleViewDetail(row)"
-                >
-                  查看详情
-                </el-button>
+                <!-- BL：CREATED 状态显示分派按钮 -->
+                <template v-if="isBL">
+                  <el-button
+                    v-if="row.status === 'CREATED'"
+                    type="primary"
+                    size="small"
+                    @click="handleAssign(row)"
+                  >
+                    分派
+                  </el-button>
+                  <el-button
+                    v-else
+                    type="primary"
+                    link
+                    size="small"
+                    @click="handleViewDetail(row)"
+                  >
+                    查看详情
+                  </el-button>
+                </template>
+                <!-- DS：待接单显示接单，设计中显示上传版本，其他查看详情 -->
+                <template v-else>
+                  <!-- 待接单：显示接单按钮 -->
+                  <el-button
+                    v-if="row.status === 'ASSIGNED'"
+                    type="primary"
+                    size="small"
+                    @click="handleAccept(row)"
+                  >
+                    接单
+                  </el-button>
+                  <!-- 设计中：显示上传版本按钮 -->
+                  <el-button
+                    v-else-if="row.status === 'DESIGNING'"
+                    type="primary"
+                    size="small"
+                    plain
+                    @click="handleUploadVersion(row)"
+                  >
+                    上传版本
+                  </el-button>
+                  <!-- 其他状态：查看详情 -->
+                  <el-button
+                    v-else
+                    type="primary"
+                    link
+                    size="small"
+                    @click="handleViewDetail(row)"
+                  >
+                    查看详情
+                  </el-button>
+                </template>
               </template>
             </el-table-column>
           </el-table>
@@ -202,9 +236,14 @@
           </div>
         </el-tab-pane>
 
-        <!-- 我参与的审核记录 -->
-        <el-tab-pane label="我参与的审核记录" name="audit">
-          <div v-loading="auditLoading" class="audit-log-list">
+        <!-- 第二个 Tab（DS=审核记录，BL=延期预警） -->
+        <el-tab-pane :label="isBL ? '延期预警' : '我参与的审核记录'" :name="isBL ? 'delay' : 'audit'">
+          <!-- BL：延期预警 -->
+          <div v-if="isBL" class="delay-warning">
+            <el-empty description="延期订单会在这里展示" :image-size="120" />
+          </div>
+          <!-- DS：审核记录 -->
+          <div v-else v-loading="auditLoading" class="audit-log-list">
             <div
               v-for="(item, index) in auditLogs"
               :key="item.id || index"
@@ -281,6 +320,60 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 分派弹窗（BL） -->
+    <el-dialog
+      v-model="assignDialog.visible"
+      title="分派任务"
+      width="480px"
+      :close-on-click-modal="false"
+    >
+      <el-form
+        ref="assignFormRef"
+        :model="assignForm"
+        :rules="assignRules"
+        label-width="80px"
+      >
+        <el-form-item label="任务编号">
+          <span class="mono-text">{{ assignDialog.row?.taskNo || assignDialog.row?.id || '—' }}</span>
+        </el-form-item>
+        <el-form-item label="所属订单">
+          {{ assignDialog.row?.orderNo || '—' }}
+        </el-form-item>
+        <el-form-item label="选择设计师" prop="designerId">
+          <el-select
+            v-model="assignForm.designerId"
+            placeholder="请选择设计师"
+            filterable
+            style="width: 100%"
+            :loading="designerLoading"
+          >
+            <el-option
+              v-for="d in designerList"
+              :key="d.id"
+              :label="d.name + ' (' + (d.username || d.id) + ')'"
+              :value="d.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分派备注" prop="remark">
+          <el-input
+            v-model="assignForm.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入分派备注（选填）"
+            maxlength="200"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="assignDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="assignDialog.loading" @click="handleAssignSubmit">
+          确认分派
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -295,7 +388,7 @@ import {
   Clock,
   CircleCheckFilled
 } from '@element-plus/icons-vue'
-import { listOrders, acceptTask, uploadDesignVersion } from '@/api'
+import { listOrders, acceptTask, uploadDesignVersion, assignTask, listDesigners } from '@/api'
 import { listMyAuditLogs } from '@/api/audit'
 import {
   MATERIAL_OPTIONS,
@@ -307,6 +400,15 @@ import { useUserStore } from '@/stores/user'
 import FileUpload from '@/components/common/FileUpload.vue'
 
 const userStore = useUserStore()
+const isAM = computed(() => userStore.userInfo?.role === 'AM')
+const isBL = computed(() => userStore.userInfo?.role === 'BL')
+const isDS = computed(() => userStore.userInfo?.role === 'DS')
+
+// 页面标题
+const pageTitle = computed(() => {
+  if (isBL.value) return '任务管理'
+  return '设计师工作台'
+})
 
 // ---------- 常量 ----------
 const PAGE_SIZE = 20
@@ -326,36 +428,60 @@ const hasTaskFilters = computed(() => {
 
 // ---------- 统计 ----------
 const stats = reactive({
+  // DS: 待接单  BL: 待分派
   assigned: 0,
+  pending: 0,
   designing: 0,
   waitApprove: 0,
   approved: 0
 })
 
+// 第一个统计卡片的状态值和标签（DS=待接单/ASSIGNED，BL=待分派/CREATED）
+const firstStatStatus = computed(() => isBL.value ? 'CREATED' : 'ASSIGNED')
+const firstStatLabel = computed(() => isBL.value ? '待分派' : '待接单')
+const firstStatValue = computed(() => isBL.value ? stats.pending : stats.assigned)
+
 async function fetchStats() {
   try {
     // 通过一次列表查询统计各状态数量（简化实现）
     const designerId = userStore.userInfo?.id
-    if (!designerId) return
 
-    // 分别查询各状态数量
-    const [assignedRes, designingRes, waitRes, approvedRes] = await Promise.all([
-      listOrders({ designerId, status: 'ASSIGNED', limit: 1 }).catch(() => ({ total: 0 })),
-      listOrders({ designerId, status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
-      listOrders({ designerId, status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
-      listOrders({ designerId, status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
-    ])
-
-    stats.assigned = assignedRes.total || 0
-    stats.designing = designingRes.total || 0
-    stats.waitApprove = waitRes.total || 0
-    stats.approved = approvedRes.total || 0
+    if (isBL.value) {
+      // BL：统计全部订单的各状态数量
+      const [pendingRes, designingRes, waitRes, approvedRes] = await Promise.all([
+        listOrders({ status: 'CREATED', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
+      ])
+      stats.pending = pendingRes.total || 0
+      stats.designing = designingRes.total || 0
+      stats.waitApprove = waitRes.total || 0
+      stats.approved = approvedRes.total || 0
+    } else {
+      // DS：统计我的任务各状态数量
+      if (!designerId) return
+      const [assignedRes, designingRes, waitRes, approvedRes] = await Promise.all([
+        listOrders({ designerId, status: 'ASSIGNED', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ designerId, status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ designerId, status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
+        listOrders({ designerId, status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
+      ])
+      stats.assigned = assignedRes.total || 0
+      stats.designing = designingRes.total || 0
+      stats.waitApprove = waitRes.total || 0
+      stats.approved = approvedRes.total || 0
+    }
   } catch (e) {
     // 接口异常时使用 mock 数据
-    stats.assigned = 3
-    stats.designing = 5
-    stats.waitApprove = 2
-    stats.approved = 28
+    if (isBL.value) {
+      stats.pending = 5
+    } else {
+      stats.assigned = 3
+    }
+    stats.designing = isBL.value ? 8 : 5
+    stats.waitApprove = isBL.value ? 4 : 2
+    stats.approved = isBL.value ? 56 : 28
   }
 }
 
@@ -419,14 +545,18 @@ async function fetchTaskList(isLoadMore = false) {
   }
 
   try {
-    const designerId = userStore.userInfo?.id
-    if (!designerId) {
-      throw new Error('未获取到用户信息')
+    const params = {
+      limit: PAGE_SIZE
     }
 
-    const params = {
-      limit: PAGE_SIZE,
-      designerId
+    // DS：只看我的任务（按 designerId 过滤）
+    // BL：看全部任务（不过滤 designerId）
+    if (!isBL.value) {
+      const designerId = userStore.userInfo?.id
+      if (!designerId) {
+        throw new Error('未获取到用户信息')
+      }
+      params.designerId = designerId
     }
 
     if (isLoadMore && nextCursor.value) {
@@ -485,6 +615,7 @@ function handleReset() {
 // 点击统计卡片快速筛选
 function quickFilter(status) {
   activeTab.value = 'tasks'
+  // BL 的第一个卡片是待分派(CREATED)，DS 是待接单(ASSIGNED)
   filters.status = status
   nextCursor.value = null
   hasMore.value = true
@@ -572,6 +703,78 @@ function handleViewDetail(row) {
   ElMessage.info(`查看任务详情：${row.taskNo || row.id}`)
 }
 
+// ---------- 操作：分派任务（BL） ----------
+const assignDialog = reactive({
+  visible: false,
+  loading: false,
+  row: null
+})
+const assignFormRef = ref(null)
+const assignForm = reactive({
+  designerId: null,
+  remark: ''
+})
+const assignRules = {
+  designerId: [
+    { required: true, message: '请选择设计师', trigger: 'change' }
+  ]
+}
+const designerList = ref([])
+const designerLoading = ref(false)
+
+async function fetchDesigners() {
+  designerLoading.value = true
+  try {
+    const res = await listDesigners()
+    designerList.value = res.list || res || []
+  } catch (e) {
+    designerList.value = []
+  } finally {
+    designerLoading.value = false
+  }
+}
+
+function handleAssign(row) {
+  assignDialog.row = row
+  assignForm.designerId = null
+  assignForm.remark = ''
+  assignDialog.visible = true
+  assignDialog.loading = false
+  if (designerList.value.length === 0) {
+    fetchDesigners()
+  }
+}
+
+async function handleAssignSubmit() {
+  if (!assignFormRef.value) return
+  assignFormRef.value.validate(async valid => {
+    if (!valid) return
+
+    const row = assignDialog.row
+    if (!row) return
+
+    assignDialog.loading = true
+    try {
+      const orderId = row.orderId || row.id
+      const taskId = row.id !== row.orderId ? row.id : row.id
+      await assignTask(orderId, taskId, {
+        designerId: assignForm.designerId,
+        remark: assignForm.remark
+      })
+      ElMessage.success('分派成功')
+      assignDialog.visible = false
+      nextCursor.value = null
+      hasMore.value = true
+      fetchTaskList(false)
+      fetchStats()
+    } catch (e) {
+      // 错误已由拦截器处理
+    } finally {
+      assignDialog.loading = false
+    }
+  })
+}
+
 // ---------- 审核记录 ----------
 const auditLoading = ref(false)
 const auditLogs = ref([])
@@ -634,8 +837,13 @@ function formatDateTime(iso) {
 
 // ---------- 生命周期 ----------
 watch(activeTab, (val) => {
-  if (val === 'audit' && auditLogs.value.length === 0) {
+  // DS：我参与的审核记录
+  if (!isBL.value && val === 'audit' && auditLogs.value.length === 0) {
     fetchAuditLogs()
+  }
+  // BL：延期预警
+  if (isBL.value && val === 'delay') {
+    // 后续可添加延期预警数据加载逻辑
   }
 })
 
@@ -650,6 +858,13 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--gray-900);
 }
 
 /* ========== 统计卡片 ========== */
@@ -809,6 +1024,13 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
   min-height: 200px;
+}
+
+.delay-warning {
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .audit-log-item {

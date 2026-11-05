@@ -9,7 +9,7 @@ import request from '@/utils/request'
  * GET /api/v1/users?role=DS
  */
 export function listUsers(params) {
-    return request.get('/users', { params })
+    return request.get('/users', { params, silent: true })
 }
 
 /**
@@ -17,7 +17,7 @@ export function listUsers(params) {
  * GET /api/v1/users?role=DS
  */
 export function listDesigners() {
-    return request.get('/users', { params: { role: 'DS' } })
+    return request.get('/users', { params: { role: 'DS' }, silent: true })
 }
 
 /**
@@ -25,5 +25,5 @@ export function listDesigners() {
  * GET /api/v1/users/{id}
  */
 export function getUser(id) {
-    return request.get(`/users/${id}`)
+    return request.get(`/users/${id}`, { silent: true })
 }

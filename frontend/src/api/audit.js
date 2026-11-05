@@ -17,7 +17,7 @@ import request from '@/utils/request'
  * 返回的是物料任务级（OrderTaskVO），不是订单级
  */
 export function listPendingTasks(params) {
-    return request.get('/audit/pending', { params })
+    return request.get('/audit/pending', { params, silent: true })
 }
 
 /**
@@ -25,7 +25,7 @@ export function listPendingTasks(params) {
  * GET /api/v1/audit/my-logs
  */
 export function listMyAuditLogs(limit = 20) {
-    return request.get('/audit/my-logs', { params: { limit } })
+    return request.get('/audit/my-logs', { params: { limit }, silent: true })
 }
 
 /**
@@ -33,7 +33,7 @@ export function listMyAuditLogs(limit = 20) {
  * GET /api/v1/audit/orders/{orderId}/logs
  */
 export function listAuditLogsByOrder(orderId) {
-    return request.get(`/audit/orders/${orderId}/logs`)
+    return request.get(`/audit/orders/${orderId}/logs`, { silent: true })
 }
 
 // ==================== 归档域 ====================
@@ -43,7 +43,7 @@ export function listAuditLogsByOrder(orderId) {
  * GET /api/v1/archive/orders
  */
 export function listArchivedOrders(params) {
-    return request.get('/archive/orders', { params })
+    return request.get('/archive/orders', { params, silent: true })
 }
 
 /**
@@ -51,7 +51,7 @@ export function listArchivedOrders(params) {
  * GET /api/v1/archive/orders/{id}
  */
 export function getArchivedOrder(id) {
-    return request.get(`/archive/orders/${id}`)
+    return request.get(`/archive/orders/${id}`, { silent: true })
 }
 
 /**
@@ -59,7 +59,7 @@ export function getArchivedOrder(id) {
  * GET /api/v1/archive/count
  */
 export function countArchived() {
-    return request.get('/archive/count')
+    return request.get('/archive/count', { silent: true })
 }
 
 // ==================== 任务级定稿/驳回 ====================
