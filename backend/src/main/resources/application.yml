@@ -16,7 +16,8 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: "jdbc:mysql://localhost:3306/amoms?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false"
     username: root
-    password: 130026
+    # 敏感信息改环境变量：启动前须设置 DB_PASSWORD（IDE Run Configuration 或系统环境变量）
+    password: "${DB_PASSWORD}"
     hikari:
       pool-name: AmomsHikariPool
       minimum-idle: 5
@@ -26,27 +27,8 @@ spring:
       connection-timeout: 30000
       connection-test-query: "SELECT 1"
 
-  # ---------- Spring Cache ----------
-# cache:
-#   type: redis
-#   redis:
-#     time-to-live: 7200000
-#     use-key-prefix: true
-#     key-prefix: "amoms:cache:"
-
-  # ---------- Redis ----------
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      password: "${REDIS_PASSWORD:}"
-      database: 0
-      timeout: 3000ms
-      lettuce:
-        pool:
-          min-idle: 2
-          max-active: 16
-          max-idle: 8
+  # 注：Redis 依赖虽在 pom 中，但项目未使用任何缓存注解/RedisTemplate，
+  # 且 AmomsApplication 已排除 RedisAutoConfiguration，故此处不再保留无效 Redis 配置。
 
   # ---------- Jackson 序列化 ----------
   jackson:
@@ -81,13 +63,16 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
       id-type: auto
-  mapper-locations: "classpath*:mapper/**/*Mapper.xml"
+  # 注：全部 Mapper 均继承 BaseMapper，resources 下无 XML 文件，故移除无效 mapper-locations。
   type-aliases-package: com.peak.entity
 
 # ---------- JWT ----------
 amoms:
   jwt:
-    secret: "${JWT_SECRET:QW1vbXMgU2VjcmV0I2tleSBmb3IgUEVBSyAxMjM0NTY3ODkgYWJjZGVm}"
+    # 敏感信息改环境变量，仓库内不保留默认密钥。
+    # JWT_SECRET 必须是 Base64 编码后的字符串（长度≥32字节），示例：
+    #   [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("amoms-peak-course-secret-key-2026"))
+    secret: "${JWT_SECRET}"
     expire-seconds: 7200
     issuer: AMOMS
     header: Authorization
@@ -163,6 +148,10 @@ spring:
 
 mybatis-plus:
   configuration:
+    # dev 环境打印 SQL 便于联调/答辩演示。
+    # 脱敏说明：登录链路只把 username 作为 SQL 参数，密码仅参与 BCrypt 内存比对，
+    # 不会出现在 SQL 日志中；改密接口本次不开发，故日志里不会出现 password_hash 明文参数。
+    # 如需彻底静默，可改为 org.apache.ibatis.logging.nologging.NoLoggingImpl。
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 logging:

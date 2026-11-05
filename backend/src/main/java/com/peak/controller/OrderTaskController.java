@@ -1,7 +1,10 @@
 package com.peak.controller;
 
+import com.peak.common.context.UserContext;
+import com.peak.dto.TaskApproveDTO;
 import com.peak.dto.TaskAssignDTO;
 import com.peak.dto.TaskCreateItem;
+import com.peak.dto.TaskRejectDTO;
 import com.peak.dto.TaskUpdateDTO;
 import com.peak.service.OrderTaskService;
 import com.peak.vo.OrderStatusUpdateResponseVO;
@@ -36,8 +39,8 @@ public class OrderTaskController {
     @Operation(summary = "查询订单下所有物料任务")
     public ResultVO<List<OrderTaskVO>> listTasks(@PathVariable Long orderId,
                                                   HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(orderTaskService.listTasks(orderId, userId, role));
     }
 
@@ -46,8 +49,8 @@ public class OrderTaskController {
     public ResultVO<OrderTaskVO> getTask(@PathVariable Long orderId,
                                           @PathVariable Long taskId,
                                           HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(orderTaskService.getTask(taskId, userId, role));
     }
 
@@ -56,7 +59,7 @@ public class OrderTaskController {
     public ResultVO<OrderTaskVO> addTask(@PathVariable Long orderId,
                                           @Valid @RequestBody TaskCreateItem dto,
                                           HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderTaskService.addTask(orderId, dto, operatorId));
     }
 
@@ -66,7 +69,7 @@ public class OrderTaskController {
                                              @PathVariable Long taskId,
                                              @Valid @RequestBody TaskUpdateDTO dto,
                                              HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderTaskService.updateTask(taskId, dto, operatorId));
     }
 
@@ -75,7 +78,7 @@ public class OrderTaskController {
     public ResultVO<Void> removeTask(@PathVariable Long orderId,
                                       @PathVariable Long taskId,
                                       HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         orderTaskService.removeTask(taskId, operatorId);
         return ResultVO.success(null);
     }
@@ -86,7 +89,7 @@ public class OrderTaskController {
                                              @PathVariable Long taskId,
                                              @Valid @RequestBody TaskAssignDTO dto,
                                              HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderTaskService.assignTask(taskId, dto, operatorId));
     }
 
@@ -96,8 +99,28 @@ public class OrderTaskController {
                                                               @PathVariable Long taskId,
                                                               @RequestBody AcceptBody body,
                                                               HttpServletRequest request) {
-        Long designerId = (Long) request.getAttribute("userId");
+        Long designerId = UserContext.getUserId();
         return ResultVO.success(orderTaskService.acceptTask(taskId, body.getVersion(), designerId));
+    }
+
+    @PutMapping("/{taskId}/approve")
+    @Operation(summary = "任务定稿（WAIT_APPROVE → APPROVED）",
+            description = "对单个物料任务确认终稿并写入定稿备注；订单级汇总由订单接口完成")
+    public ResultVO<OrderTaskVO> approveTask(@PathVariable Long orderId,
+                                             @PathVariable Long taskId,
+                                             @Valid @RequestBody TaskApproveDTO dto) {
+        return ResultVO.success(orderTaskService.approveTask(
+                taskId, dto.getRemark(), dto.getVersion(), UserContext.getUserId()));
+    }
+
+    @PutMapping("/{taskId}/reject")
+    @Operation(summary = "任务驳回（WAIT_APPROVE → DESIGNING）",
+            description = "驳回单个物料任务的设计稿，驳回说明会写入修改意见（Feedback）")
+    public ResultVO<OrderTaskVO> rejectTask(@PathVariable Long orderId,
+                                            @PathVariable Long taskId,
+                                            @Valid @RequestBody TaskRejectDTO dto) {
+        return ResultVO.success(orderTaskService.rejectTask(
+                taskId, dto.getRejectNote(), dto.getVersion(), UserContext.getUserId()));
     }
 
     @Data

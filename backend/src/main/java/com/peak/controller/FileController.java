@@ -1,5 +1,6 @@
 package com.peak.controller;
 
+import com.peak.common.context.UserContext;
 import com.peak.dto.PresignRequest;
 import com.peak.dto.ReferenceFileConfirmRequest;
 import com.peak.service.FileService;
@@ -58,7 +59,7 @@ public class FileController {
             @RequestParam(required = false) Long orderId,
             @RequestParam(required = false) Long taskId,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        Long userId = UserContext.getUserId();
         return ResultVO.success(fileService.upload(fileId, file, orderId, taskId, userId));
     }
 
@@ -82,7 +83,7 @@ public class FileController {
     public ResultVO<ReferenceFileVO> confirmReferenceFile(
             @Valid @RequestBody ReferenceFileConfirmRequest dto,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
+        Long userId = UserContext.getUserId();
         return ResultVO.success(fileService.confirmReferenceFile(dto, userId));
     }
 }

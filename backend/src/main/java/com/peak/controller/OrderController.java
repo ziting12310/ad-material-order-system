@@ -1,5 +1,6 @@
 package com.peak.controller;
 
+import com.peak.common.context.UserContext;
 import com.peak.common.annotation.RequireRole;
 import com.peak.common.enums.UserRole;
 import com.peak.dto.OrderApproveRequest;
@@ -79,8 +80,8 @@ public class OrderController {
             @Parameter(description = "交付日期起（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateFrom,
             @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateTo,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(orderService.listOrders(userId, role, cursor, limit, materialType, status, keyword, designerId, creatorId, deliveryDateFrom, deliveryDateTo));
     }
 
@@ -91,8 +92,8 @@ public class OrderController {
     @GetMapping("/{id}")
     @Operation(summary = "订单详情（含参考文件/设计稿/意见）")
     public ResultVO<OrderDetailVO> getOrderDetail(@PathVariable Long id, HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(orderService.getOrderDetail(id, userId, role));
     }
 
@@ -116,7 +117,7 @@ public class OrderController {
     @Operation(summary = "创建订单")
     public ResultVO<OrderCreateResponseVO> createOrder(@Valid @RequestBody OrderCreateRequest dto,
                                                        HttpServletRequest request) {
-        Long creatorId = (Long) request.getAttribute("userId");
+        Long creatorId = UserContext.getUserId();
         return ResultVO.success(orderService.createOrder(dto, creatorId));
     }
 
@@ -130,7 +131,7 @@ public class OrderController {
     public ResultVO<OrderCreateResponseVO> updateOrder(@PathVariable Long id,
                                                        @Valid @RequestBody OrderUpdateRequest dto,
                                                        HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderService.updateOrder(id, dto, operatorId));
     }
 
@@ -146,7 +147,7 @@ public class OrderController {
     public ResultVO<OrderAssignResponseVO> assignOrder(@PathVariable Long id,
                                                        @Valid @RequestBody OrderAssignRequest dto,
                                                        HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderService.assignOrder(id, dto, operatorId));
     }
 
@@ -161,7 +162,7 @@ public class OrderController {
     public ResultVO<OrderStatusUpdateResponseVO> acceptTask(@PathVariable Long id,
                                                             @Valid @RequestBody VersionOnlyRequest dto,
                                                             HttpServletRequest request) {
-        Long designerId = (Long) request.getAttribute("userId");
+        Long designerId = UserContext.getUserId();
         return ResultVO.success(orderService.acceptTask(id, dto, designerId));
     }
 
@@ -175,7 +176,7 @@ public class OrderController {
     public ResultVO<OrderRejectResponseVO> rejectDesign(@PathVariable Long id,
                                                        @Valid @RequestBody OrderRejectRequest dto,
                                                        HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderService.rejectDesign(id, dto, operatorId));
     }
 
@@ -189,7 +190,7 @@ public class OrderController {
     public ResultVO<OrderApproveResponseVO> approveFinal(@PathVariable Long id,
                                                           @Valid @RequestBody OrderApproveRequest dto,
                                                           HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderService.approveFinal(id, dto, operatorId));
     }
 
@@ -202,7 +203,7 @@ public class OrderController {
     public ResultVO<OrderDeliverResponseVO> markDelivered(@PathVariable Long id,
                                                           @Valid @RequestBody OrderDeliverRequest dto,
                                                           HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderService.markDelivered(id, dto, operatorId));
     }
 
@@ -215,7 +216,7 @@ public class OrderController {
     public ResultVO<OrderStatusUpdateResponseVO> cancelOrder(@PathVariable Long id,
                                                              @Valid @RequestBody OrderCancelRequest dto,
                                                              HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         return ResultVO.success(orderService.cancelOrder(id, dto, operatorId));
     }
 
@@ -228,7 +229,7 @@ public class OrderController {
     public ResultVO<Void> confirmOrder(@PathVariable Long id,
                                         @Valid @RequestBody OrderConfirmDTO dto,
                                         HttpServletRequest request) {
-        Long operatorId = (Long) request.getAttribute("userId");
+        Long operatorId = UserContext.getUserId();
         orderService.confirmOrder(id, dto, operatorId);
         return ResultVO.success(null);
     }
@@ -241,8 +242,8 @@ public class OrderController {
     @Operation(summary = "查询订单操作历史")
     public ResultVO<java.util.List<OperationLogVO>> listOperationLogs(@PathVariable Long id,
                                                                         HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(orderService.listOperationLogs(id, userId, role));
     }
 }

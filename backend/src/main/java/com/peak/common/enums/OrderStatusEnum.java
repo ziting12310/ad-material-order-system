@@ -21,6 +21,19 @@ import java.util.Set;
  *
  * <p>枚举值直接作为 DB orders.status 字段 VARCHAR(32) 存储值；
  * Java 业务逻辑判断用 OrderStatusEnum.REVIEWING，DB 查询用 code="REVIEWING"。</p>
+ *
+ * <p><b>对外 4 态与内部 7 态映射（口径对齐，避免前后端错位）</b>：
+ * <pre>
+ * 对外 4 态（本枚举）      内部旧态（OrderStatus，7态）      说明
+ * --------------------------------------------------------------------------
+ * CREATED              ←  WAIT_CREATE / CREATED            登记待分派
+ * ASSIGNED             ←  ASSIGNED                         已分派待接单
+ * REVIEWING            ←  DESIGNING / WAIT_APPROVE         设计制作 + 送审/意见往返
+ * FINISHED             ←  APPROVED / DELIVERED             定稿 → 交付归档
+ * （无对外映射）         ←  CANCELLED                       取消态仅内部使用，不对外暴露
+ * </pre>
+ * 前端统一按 4 态展示与筛选；后端内部流转仍使用 7 态（OrderStatus），
+ * 由 {@link #fromInternal(String)} 做投影后再交给状态机校验。</p>
  */
 @Getter
 @AllArgsConstructor
@@ -85,5 +98,31 @@ public enum OrderStatusEnum {
             return false;
         }
         return LEGACY_ONLY_CODES.contains(dbStatus.trim());
+    }
+
+    /**
+     * 内部 7 态 → 对外 4 态投影（状态口径对齐入口，Service 层接入状态机时调用）
+     *
+     * <p>映射规则见类注释映射表，简述：
+     * WAIT_CREATE/CREATED→CREATED；ASSIGNED→ASSIGNED；DESIGNING/WAIT_APPROVE→REVIEWING；
+     * APPROVED/DELIVERED→FINISHED；CANCELLED 及未知值→null（无对外口径）。</p>
+     *
+     * <p>返回 null 表示该内部状态不参与对外 4 态展示（目前仅 CANCELLED），
+     * 调用方应跳过状态机校验，继续由原有 checkStatus 老逻辑兜底，禁止直接解引用。</p>
+     *
+     * @param internalStatus DB orders.status 内部状态字符串（可为 7 态任意值）
+     * @return 对外 4 态枚举；CANCELLED / 未知值 / null → null
+     */
+    public static OrderStatusEnum fromInternal(String internalStatus) {
+        if (internalStatus == null) {
+            return null;
+        }
+        return switch (internalStatus.trim()) {
+            case "WAIT_CREATE", "CREATED" -> CREATED;
+            case "ASSIGNED" -> ASSIGNED;
+            case "DESIGNING", "WAIT_APPROVE" -> REVIEWING;
+            case "APPROVED", "DELIVERED" -> FINISHED;
+            default -> null;   // CANCELLED：内部取消态，无对外映射
+        };
     }
 }

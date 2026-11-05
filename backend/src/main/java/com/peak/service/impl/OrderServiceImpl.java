@@ -7,6 +7,7 @@ import com.peak.common.enums.FeedbackStatus;
 import com.peak.common.enums.MaterialType;
 import com.peak.common.enums.OperationType;
 import com.peak.common.enums.OrderStatus;
+import com.peak.common.enums.OrderStatusEnum;
 import com.peak.common.enums.UserRole;
 import com.peak.dto.OrderApproveRequest;
 import com.peak.dto.OrderAssignRequest;
@@ -36,6 +37,7 @@ import com.peak.mapper.UserMapper;
 import com.peak.service.OrderService;
 import com.peak.service.OrderTaskService;
 import com.peak.util.OperationLogUtil;
+import com.peak.util.OrderStateMachineUtil;
 import com.peak.vo.CursorPage;
 import com.peak.vo.DesignVersionVO;
 import com.peak.vo.OperationLogVO;
@@ -96,6 +98,39 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     @Lazy
     private OrderTaskService orderTaskService;
+
+    // ========================================================================
+    // 【状态机接入】对外 4 态校验（内部 7 态投影后执行）
+    // 约定：4 态对外、7 态内部流转；两处校验均插在原有 checkStatus 之后、写 DB 之前，
+    //      不替换原有逻辑，只做增量守门，非法流转抛 422。
+    // ========================================================================
+    /**
+     * 状态跃迁校验（顺序流转守门）
+     *
+     * <p>先把内部 7 态投影为对外 4 态（{@link OrderStatusEnum#fromInternal}），
+     * 再交给 {@link OrderStateMachineUtil#transition} 校验
+     * CREATED→ASSIGNED→REVIEWING→FINISHED 是否合法。</p>
+     *
+     * <p>CANCELLED 等无对外映射的内部态直接跳过（返回 null），继续由原有 checkStatus 兜底。</p>
+     */
+    private void checkExternalTransition(Order order, OrderStatusEnum target) {
+        OrderStatusEnum current = OrderStatusEnum.fromInternal(order.getStatus());
+        if (current == null) {
+            return;   // 无对外口径（如 CANCELLED），保持老逻辑
+        }
+        OrderStateMachineUtil.transition(current.getCode(), target);
+    }
+
+    /**
+     * 状态守卫（不改变状态、仅特定对外状态下可操作，如编辑订单仅 CREATED）
+     */
+    private void checkExternalState(Order order, OrderStatusEnum expected, String actionLabel) {
+        OrderStatusEnum current = OrderStatusEnum.fromInternal(order.getStatus());
+        if (current == null) {
+            return;   // 无对外口径（如 CANCELLED），保持老逻辑
+        }
+        OrderStateMachineUtil.requireState(current.getCode(), expected, actionLabel);
+    }
 
     // ========================================================================
     // 【1】订单列表（Cursor 游标分页）
@@ -302,6 +337,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderCreateResponseVO updateOrder(Long orderId, OrderUpdateRequest dto, Long operatorId) {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.CREATED, "编辑订单");
+        checkExternalState(order, OrderStatusEnum.CREATED, "编辑订单");   // 状态机守卫：编辑仅对外 CREATED
 
         String role = getUserRole(operatorId);
         if (UserRole.AM.getCode().equals(role)) {
@@ -339,6 +375,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderAssignResponseVO assignOrder(Long orderId, OrderAssignRequest dto, Long operatorId) {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.CREATED, "分派设计");
+        checkExternalTransition(order, OrderStatusEnum.ASSIGNED);   // 状态机：对外 CREATED → ASSIGNED
         requireRole(operatorId, UserRole.BL.getCode());
         checkNotArchived(order);
         checkVersion(order, dto.getVersion());
@@ -400,6 +437,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderStatusUpdateResponseVO acceptTask(Long orderId, VersionOnlyRequest dto, Long designerId) {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.ASSIGNED, "设计师接单");
+        checkExternalTransition(order, OrderStatusEnum.REVIEWING);   // 状态机：对外 ASSIGNED → REVIEWING
 
         if (!designerId.equals(order.getDesignerId())) {
             throw new BusinessException(ErrorCode.PERMISSION_DENIED, "该订单未分派给您");
@@ -436,6 +474,8 @@ public class OrderServiceImpl implements OrderService {
     public OrderRejectResponseVO rejectDesign(Long orderId, OrderRejectRequest dto, Long operatorId) {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.WAIT_APPROVE, "驳回设计");
+        // 状态机守卫：驳回在对外口径中仍属 REVIEWING（内部 WAIT_APPROVE → DESIGNING）
+        checkExternalState(order, OrderStatusEnum.REVIEWING, "驳回设计");
         requireAnyRole(operatorId, UserRole.BL.getCode(), UserRole.AM.getCode());
         checkNotArchived(order);
         checkVersion(order, dto.getVersion());
@@ -491,6 +531,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderApproveResponseVO approveFinal(Long orderId, OrderApproveRequest dto, Long operatorId) {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.WAIT_APPROVE, "确认终稿");
+        checkExternalTransition(order, OrderStatusEnum.FINISHED);   // 状态机：对外 REVIEWING → FINISHED
         requireAnyRole(operatorId, UserRole.BL.getCode(), UserRole.AM.getCode());
         checkNotArchived(order);
         checkVersion(order, dto.getVersion());
@@ -572,6 +613,8 @@ public class OrderServiceImpl implements OrderService {
         checkVersion(order, dto.getVersion());
 
         LocalDateTime now = LocalDateTime.now();
+        // 状态机守卫：交付前对外口径必须是 FINISHED（内部 APPROVED → DELIVERED）
+        checkExternalState(order, OrderStatusEnum.FINISHED, "标记交付");
         order.setStatus(OrderStatus.DELIVERED.getCode());
         order.setDeliveredBy(operatorId);
         order.setDeliveredAt(now);
@@ -629,6 +672,8 @@ public class OrderServiceImpl implements OrderService {
             orderTaskMapper.updateById(task);
         }
 
+        // 取消是业务兜底动作（非终态均可作废），对外 4 态无 CANCELLED 口径，
+        // 故豁免状态机顺序校验，仍由上方终态判断 + 原有逻辑兜底。
         order.setStatus(OrderStatus.CANCELLED.getCode());
         orderMapper.updateById(order);
 
