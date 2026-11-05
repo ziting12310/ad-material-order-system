@@ -235,9 +235,9 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="分派备注" prop="remark">
+        <el-form-item label="分派备注" prop="assignRemark">
           <el-input
-            v-model="assignForm.remark"
+            v-model="assignForm.assignRemark"
             type="textarea"
             :rows="3"
             placeholder="请输入分派备注（选填）"
@@ -260,7 +260,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, RefreshLeft } from '@element-plus/icons-vue'
-import { listOrders, deleteOrder, listDesigners, assignTask } from '@/api'
+import { listOrders, deleteOrder, listDesigners, assignTask, assignOrder, getOrderDetail } from '@/api'
 import {
   MATERIAL_OPTIONS,
   ORDER_STATUS_OPTIONS,
@@ -523,7 +523,8 @@ const assignDialog = reactive({
 const assignFormRef = ref(null)
 const assignForm = reactive({
   designerId: null,
-  remark: ''
+  assignRemark: '',
+  version: null           // 订单级乐观锁，详情接口返回
 })
 const assignRules = {
   designerId: [
@@ -545,12 +546,32 @@ async function fetchDesigners() {
   }
 }
 
-function handleAssign(row) {
+async function handleAssign(row) {
   assignDialog.row = row
   assignForm.designerId = null
-  assignForm.remark = ''
+  assignForm.assignRemark = ''
+  assignForm.version = null
+
+  // 打开弹窗前必须拉详情：列表 VO 不含订单 version 和 tasks 实体
+  let orderDetail = null
+  try {
+    assignDialog.loading = true
+    orderDetail = await getOrderDetail(row.id)
+    if (orderDetail?.version == null) {
+      ElMessage.error('后端订单详情未返回 version，无法分派，请检查 OrderDetailVO')
+      return
+    }
+    assignForm.version = orderDetail.version
+    // 把真实 tasks 挂到 row 上，供提交时使用
+    row.tasks = orderDetail.tasks || []
+  } catch (e) {
+    ElMessage.error('加载订单详情失败，请重试')
+    return
+  } finally {
+    assignDialog.loading = false
+  }
+
   assignDialog.visible = true
-  assignDialog.loading = false
   // 加载设计师列表
   if (designerList.value.length === 0) {
     fetchDesigners()
@@ -567,29 +588,30 @@ async function handleAssignSubmit() {
 
     assignDialog.loading = true
     try {
-      // 任务级分派：遍历订单下所有任务，分派给同一设计师
+      // 任务级分派：逐个分派，每个 task 带自己的 version
       const tasks = row.tasks || []
       if (tasks.length > 0) {
-        // 有任务列表时，逐个分派任务
-        const assignPromises = tasks.map(task =>
-          assignTask(row.id, task.id, {
+        const assignPromises = tasks.map(task => {
+          if (task.version == null) {
+            throw new Error(`任务 ${task.id} 未返回 version，无法分派`)
+          }
+          return assignTask(row.id, task.id, {
             designerId: assignForm.designerId,
-            remark: assignForm.remark
+            assignRemark: assignForm.assignRemark,
+            version: task.version
           })
-        )
+        })
         await Promise.all(assignPromises)
       } else {
-        // 没有任务列表时，尝试订单级分派（后端若支持）
-        // 兜底：调用第一个任务的分派，或直接调用订单级接口
-        try {
-          await assignTask(row.id, row.id, {
-            designerId: assignForm.designerId,
-            remark: assignForm.remark
-          })
-        } catch (e) {
-          // 订单级分派失败的话，提示用户
-          throw e
+        // 订单级分派（无任务时）：用订单本体的 version
+        if (assignForm.version == null) {
+          throw new Error('订单 version 缺失，无法分派')
         }
+        await assignOrder(row.id, {
+          designerId: assignForm.designerId,
+          assignRemark: assignForm.assignRemark,
+          version: assignForm.version
+        })
       }
 
       ElMessage.success('分派成功')
