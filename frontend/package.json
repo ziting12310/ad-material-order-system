@@ -1,28 +1,24 @@
 {
   "name": "amoms-frontend",
-  "private": true,
   "version": "1.0.0",
+  "private": true,
   "type": "module",
-  "description": "广告制作公司宣传物料订单管理系统 - 前端（Vue3 + Vite + TailwindCSS + Pinia + Vue Router）",
-  "engines": {
-    "node": ">=20.19.0"
-  },
+  "description": "广告物料订单管理系统 - 前端",
   "scripts": {
-    "dev": "vite --open",
+    "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "axios": "^1.7.9",
-    "pinia": "^2.3.0",
-    "vue": "^3.5.13",
-    "vue-router": "^4.5.0"
+    "axios": "^1.6.7",
+    "element-plus": "^2.5.6",
+    "@element-plus/icons-vue": "^2.3.1",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.15",
+    "vue-router": "^4.2.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^5.2.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.17",
-    "vite": "^6.0.7"
+    "@vitejs/plugin-vue": "^5.0.3",
+    "vite": "^5.0.12"
   }
 }

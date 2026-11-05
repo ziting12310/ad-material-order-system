@@ -16,6 +16,8 @@ public final class ErrorCode {
     // ---------- 400 Bad Request ----------
     /** 参数校验失败（Jakarta Validation 注解触发） */
     public static final String PARAM_VALIDATION_ERROR = "PARAM_VALIDATION_ERROR";
+    /** 缺少必填参数 / 请求头 */
+    public static final String MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD";
     /** 文件格式不支持 */
     public static final String FILE_TYPE_NOT_SUPPORTED = "FILE_TYPE_NOT_SUPPORTED";
 
@@ -26,16 +28,20 @@ public final class ErrorCode {
     public static final String TOKEN_EXPIRED = "TOKEN_EXPIRED";
     /** Token 非法（签名错误 / 格式错误） */
     public static final String TOKEN_INVALID = "TOKEN_INVALID";
-
-    // ---------- 403 Forbidden ----------
-    /** 账号密码错误 */
+    /** 账号或密码错误 */
     public static final String LOGIN_FAILED = "LOGIN_FAILED";
     /** 账号已锁定 */
     public static final String ACCOUNT_LOCKED = "ACCOUNT_LOCKED";
+
+    // ---------- 403 Forbidden ----------
     /** 无角色权限访问 */
     public static final String PERMISSION_DENIED = "PERMISSION_DENIED";
+    /** 数据范围越权（非本人创建/非本人负责的订单） */
+    public static final String DATA_SCOPE_DENIED = "DATA_SCOPE_DENIED";
 
     // ---------- 404 Not Found ----------
+    /** 通用资源不存在 */
+    public static final String NOT_FOUND = "NOT_FOUND";
     /** 订单不存在 */
     public static final String ORDER_NOT_FOUND = "ORDER_NOT_FOUND";
     /** 设计稿版本不存在 */
@@ -45,19 +51,25 @@ public final class ErrorCode {
     /** 用户不存在 */
     public static final String USER_NOT_FOUND = "USER_NOT_FOUND";
 
+    // ---------- 405 Method Not Allowed ----------
+    /** 请求方法不支持 */
+    public static final String METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED";
+
     // ---------- 409 Conflict ----------
     /** 乐观锁版本冲突（并发操作拦截） */
     public static final String ORDER_VERSION_CONFLICT = "ORDER_VERSION_CONFLICT";
     /** 订单编号重复 */
     public static final String ORDER_NO_DUPLICATE = "ORDER_NO_DUPLICATE";
 
+    // ---------- 413 Payload Too Large ----------
+    /** 上传文件超过大小限制 */
+    public static final String FILE_TOO_LARGE = "FILE_TOO_LARGE";
+
     // ---------- 422 Unprocessable Entity ----------
     /** 订单状态冲突（当前状态不允许该操作） */
     public static final String ORDER_STATUS_CONFLICT = "ORDER_STATUS_CONFLICT";
     /** 设计人员角色不符合（分派的用户不是 DS 角色） */
     public static final String DESIGNER_ROLE_INVALID = "DESIGNER_ROLE_INVALID";
-    /** 数据范围越权（非本人创建/非本人负责的订单） */
-    public static final String DATA_SCOPE_DENIED = "DATA_SCOPE_DENIED";
 
     // ---------- 500 Internal Server Error ----------
     /** 通用业务异常 */

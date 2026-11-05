@@ -1,5 +1,7 @@
 package com.peak.controller;
 
+import com.peak.common.annotation.RequireRole;
+import com.peak.common.enums.UserRole;
 import com.peak.dto.OrderApproveRequest;
 import com.peak.dto.OrderAssignRequest;
 import com.peak.dto.OrderCancelRequest;
@@ -110,6 +112,7 @@ public class OrderController {
      * </pre></p>
      */
     @PostMapping
+    @RequireRole({UserRole.AM, UserRole.BL, UserRole.DS})
     @Operation(summary = "创建订单")
     public ResultVO<OrderCreateResponseVO> createOrder(@Valid @RequestBody OrderCreateRequest dto,
                                                        HttpServletRequest request) {
@@ -122,6 +125,7 @@ public class OrderController {
      * PUT /api/v1/orders/{id}
      */
     @PutMapping("/{id}")
+    @RequireRole({UserRole.AM, UserRole.BL, UserRole.DS})
     @Operation(summary = "编辑订单（仅已登记状态可编辑）")
     public ResultVO<OrderCreateResponseVO> updateOrder(@PathVariable Long id,
                                                        @Valid @RequestBody OrderUpdateRequest dto,
@@ -166,6 +170,7 @@ public class OrderController {
      * PUT /api/v1/orders/{id}/reject
      */
     @PutMapping("/{id}/reject")
+    @RequireRole({UserRole.AM, UserRole.BL})
     @Operation(summary = "驳回设计稿（WAIT_APPROVE → DESIGNING）")
     public ResultVO<OrderRejectResponseVO> rejectDesign(@PathVariable Long id,
                                                        @Valid @RequestBody OrderRejectRequest dto,
@@ -179,6 +184,7 @@ public class OrderController {
      * PUT /api/v1/orders/{id}/approve
      */
     @PutMapping("/{id}/approve")
+    @RequireRole({UserRole.AM, UserRole.BL})
     @Operation(summary = "确认终稿（WAIT_APPROVE → APPROVED）")
     public ResultVO<OrderApproveResponseVO> approveFinal(@PathVariable Long id,
                                                           @Valid @RequestBody OrderApproveRequest dto,

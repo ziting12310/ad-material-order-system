@@ -27,12 +27,12 @@ spring:
       connection-test-query: "SELECT 1"
 
   # ---------- Spring Cache ----------
-  cache:
-    type: redis
-    redis:
-      time-to-live: 7200000
-      use-key-prefix: true
-      key-prefix: "amoms:cache:"
+# cache:
+#   type: redis
+#   redis:
+#     time-to-live: 7200000
+#     use-key-prefix: true
+#     key-prefix: "amoms:cache:"
 
   # ---------- Redis ----------
   data:
