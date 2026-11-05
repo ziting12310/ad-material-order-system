@@ -26,14 +26,15 @@ import java.util.stream.Collectors;
  *
  * <p><b>新旧状态模型兼容声明</b>：
  * 新状态机只管控【新 4 态订单】（CREATED / ASSIGNED / REVIEWING / FINISHED）；
- * DB 存量旧订单的 status 是旧 7 态字符串（DESIGNING / WAIT_APPROVE / APPROVED / DELIVERED 等），
- * 经 {@link OrderStatusEnum#safeOf} 解析为 null 后本工具类直接放行，不做新状态机校验、不抛异常，
- * 交给原有老逻辑处理。跨状态模型切换需团队对齐后再改造 ServiceImpl，本版本不动老业务代码。</p>
+ * DB 存量旧订单的 status 命中 {@link OrderStatusEnum#isLegacy} 白名单（WAIT_CREATE / DESIGNING /
+ * WAIT_APPROVE / APPROVED / DELIVERED / CANCELLED）时直接放行，不做新状态机校验、不抛异常，
+ * 交给原有老逻辑处理。白名单之外的 null / 空串 / 未知值视为脏数据，一律拦截（fail-closed），
+ * 不静默放行。跨状态模型切换需团队对齐后再改造 ServiceImpl，本版本不动老业务代码。</p>
  *
  * <p>使用约定：Service 层在「更新 DB 之前」调用 {@link #transition}，第一个参数直接传
  * DB 原始状态字符串（解析动作内聚在工具类，调用方无需判 null，杜绝 NPE）；
  * 非法跃迁抛 BusinessException（错误码 {@link BusinessErrorCode#ORDER_STATUS_ILLEGAL_TRANSITION}），
- * 由 GlobalExceptionHandler 统一转 422 ResultVO 返回前端。</p>
+ * 由 GlobalExceptionHandler 映射为 HTTP 422 返回前端。</p>
  *
  * <p>使用示例 1 —— assignOrder 分派（状态跃迁场景，更新 DB 前先校验）：
  * <pre>{@code
@@ -77,34 +78,42 @@ public final class OrderStateMachineUtil {
     /**
      * 状态跃迁校验 — 更新 DB 之前必须调用（新旧状态模型兼容入口）
      *
-     * <p>处理逻辑：
-     *  ① 先用 {@link OrderStatusEnum#safeOf} 解析 DB 当前状态；
-     *  ② 解析结果为 null（旧 7 态字符串）→ 直接 return：不校验、不抛异常，交给原有老逻辑处理；
-     *  ③ 解析成功（新 4 态）→ 执行跃迁规则校验：只允许单向顺序流转
+     * <p>处理逻辑（顺序固定）：
+     *  ① 参数守卫：target 为 null 直接抛错，先于兼容分支，避免旧状态订单吞掉调用方 bug；
+     *  ② {@link OrderStatusEnum#safeOf} 解析 DB 当前状态；
+     *  ③ 命中旧状态白名单（{@link OrderStatusEnum#isLegacy}）→ 直接 return：不校验、不抛异常，
+     *     交给原有老逻辑处理；
+     *  ④ 既非新 4 态、又不在旧状态白名单（null / 空串 / 大小写错 / 未知脏数据）→ 抛错拦截（fail-closed）；
+     *  ⑤ 新 4 态订单 → 跃迁规则校验：只允许单向顺序流转
      *     CREATED→ASSIGNED→REVIEWING→FINISHED，禁止跳跃、回退，非法抛 422。</p>
      *
-     * @param dbCurrentStatus DB orders.status 原始字符串（新 4 态或旧 7 态均可安全传入，方法内部判 null，无 NPE 风险）
+     * @param dbCurrentStatus DB orders.status 原始字符串（新 4 态 / 旧状态均可安全传入，方法内部归一化，无 NPE 风险）
      * @param target          目标状态（本次动作要到达的状态，必须传新 4 态枚举常量）
-     * @throws BusinessException 非法跃迁（跨级跳跃 / 反向回退 / 终态再流转 / target 为 null），
-     *                           错误码 ORDER_STATUS_ILLEGAL_TRANSITION（422）
+     * @throws BusinessException 非法跃迁（跨级跳跃 / 反向回退 / 终态再流转 / 未知状态值 / target 为 null），
+     *                           错误码 ORDER_STATUS_ILLEGAL_TRANSITION（HTTP 422）
      */
     public static void transition(String dbCurrentStatus, OrderStatusEnum target) {
-        // ① 兼容分支：DB 是旧 7 态字符串（如 DESIGNING / WAIT_APPROVE）→ safeOf 解析为 null
-        //    直接放行、不校验、不抛异常 —— 存量旧订单的状态流转交给原有老逻辑处理
-        OrderStatusEnum current = OrderStatusEnum.safeOf(dbCurrentStatus);
-        if (current == null) {
-            return;
-        }
-
-        // ② 目标状态守卫：target 为 null 属于调用方代码缺陷（目标必须来自新 4 态枚举常量），
-        //    静默放行会造成状态不推进，必须显式抛错
+        // ① 参数守卫最先执行：target 必须来自新 4 态枚举常量，null 属于调用方代码缺陷
         if (target == null) {
             throw new BusinessException(
                     BusinessErrorCode.ORDER_STATUS_ILLEGAL_TRANSITION.getCode(),
                     "订单状态流转目标状态非法：target=null");
         }
 
-        // ③ 跃迁边校验：仅新 4 态订单受状态机管控，非法跃迁抛 422
+        OrderStatusEnum current = OrderStatusEnum.safeOf(dbCurrentStatus);
+
+        // ② 兼容分支：旧状态白名单命中（如 DESIGNING / CANCELLED）→ 放行，交给原有老逻辑处理
+        if (current == null) {
+            if (OrderStatusEnum.isLegacy(dbCurrentStatus)) {
+                return;
+            }
+            // ③ 白名单外（null / 空串 / 未知值）→ 脏数据拦截，避免 fail-open
+            throw new BusinessException(
+                    BusinessErrorCode.ORDER_STATUS_ILLEGAL_TRANSITION.getCode(),
+                    "订单当前状态值非法：%s，无法执行状态流转", dbCurrentStatus);
+        }
+
+        // ④ 跃迁边校验：仅新 4 态订单受状态机管控，非法跃迁抛 422
         Set<OrderStatusEnum> allowed = ALLOWED_TRANSITIONS.get(current);
         if (!allowed.contains(target)) {
             throw new BusinessException(
@@ -117,20 +126,35 @@ public final class OrderStateMachineUtil {
     /**
      * 当前状态守卫 — 适用于「不改变状态、仅特定状态下可操作」的场景（如编辑订单仅 CREATED 可用）
      *
-     * <p>与 {@link #transition} 同样的兼容语义：旧 7 态订单解析为 null 后直接放行，
-     * 前置状态校验交给原有老逻辑（老逻辑自带 checkStatus）。</p>
+     * <p>与 {@link #transition} 同样的兼容语义：旧状态白名单命中后直接放行，前置状态校验交给原有老逻辑；
+     * 白名单外的未知值视为脏数据，抛错拦截。</p>
      *
-     * @param dbCurrentStatus DB orders.status 原始字符串（可为旧 7 态，方法内部判 null，无 NPE 风险）
+     * @param dbCurrentStatus DB orders.status 原始字符串（可为旧状态，方法内部归一化，无 NPE 风险）
      * @param expected        允许操作的新 4 态状态
      * @param actionLabel     操作名称（用于错误消息，如"编辑订单"）
-     * @throws BusinessException 新 4 态订单且当前状态不在允许范围
+     * @throws BusinessException expected 为 null、未知状态值，或新 4 态订单当前状态不在允许范围
      */
     public static void requireState(String dbCurrentStatus, OrderStatusEnum expected, String actionLabel) {
-        // 兼容分支：旧 7 态订单不做新状态机守卫，交给原有老逻辑处理
-        OrderStatusEnum current = OrderStatusEnum.safeOf(dbCurrentStatus);
-        if (current == null) {
-            return;
+        // ① 参数守卫最先执行
+        if (expected == null) {
+            throw new BusinessException(
+                    BusinessErrorCode.ORDER_STATUS_ILLEGAL_TRANSITION.getCode(),
+                    "状态守卫目标非法：expected=null");
         }
+
+        OrderStatusEnum current = OrderStatusEnum.safeOf(dbCurrentStatus);
+
+        // ② 兼容分支：旧状态白名单命中 → 放行，交给原有老逻辑处理
+        if (current == null) {
+            if (OrderStatusEnum.isLegacy(dbCurrentStatus)) {
+                return;
+            }
+            throw new BusinessException(
+                    BusinessErrorCode.ORDER_STATUS_ILLEGAL_TRANSITION.getCode(),
+                    "订单当前状态值非法：%s，%s 无法执行", dbCurrentStatus, actionLabel);
+        }
+
+        // ③ 新 4 态订单：当前状态必须等于 expected
         if (current != expected) {
             throw new BusinessException(
                     BusinessErrorCode.ORDER_STATUS_ILLEGAL_TRANSITION.getCode(),
