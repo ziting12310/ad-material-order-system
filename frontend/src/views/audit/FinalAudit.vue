@@ -930,7 +930,7 @@ async function handleReject() {
       // 任务级驳回（预留，当前走任务级接口路径）
       const orderId = row.orderId || row.id
       const taskId = row.id
-      await rejectTask(orderId, taskId, { rejectRemark: rejectForm.rejectRemark })
+      await rejectTask(orderId, taskId, { rejectNote: rejectForm.rejectRemark, version: row.version })
       ElMessage.success('已驳回')
       rejectDialog.visible = false
       // 刷新列表和统计
