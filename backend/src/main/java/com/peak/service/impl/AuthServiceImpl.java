@@ -122,7 +122,7 @@ public class AuthServiceImpl implements AuthService {
         user.setPasswordHash(passwordUtil.encrypt(dto.getPassword()));
         user.setName(dto.getName());
         // 自助注册固定为 DS，AM/BL 只能由内部维护，避免匿名注册获取业务权限
-        user.setRole(UserRole.DS.getCode());
+        user.setRole(dto.getRole());
         user.setPhone(dto.getPhone());
         user.setLocked(0);
         user.setDeleted(0);

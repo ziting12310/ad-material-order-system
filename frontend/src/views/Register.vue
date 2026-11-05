@@ -29,7 +29,7 @@
       <!-- 右侧注册表单 -->
       <div class="register-form-wrap">
         <h2 class="form-title">注册账号</h2>
-        <p class="form-tip">注册后默认设计人员角色，用于接单和上传设计稿</p>
+        <p class="form-tip">请选择您的角色并填写注册信息</p>
 
         <el-form
           ref="registerFormRef"
@@ -38,22 +38,29 @@
           class="register-form"
           label-width="0"
         >
+          <el-form-item prop="role">
+            <el-radio-group v-model="registerForm.role" class="role-select">
+              <el-radio-button value="AM">
+                <el-icon><User /></el-icon>
+                <span>客户经理</span>
+              </el-radio-button>
+              <el-radio-button value="BL">
+                <el-icon><Briefcase /></el-icon>
+                <span>业务负责人</span>
+              </el-radio-button>
+              <el-radio-button value="DS">
+                <el-icon><Brush /></el-icon>
+                <span>设计人员</span>
+              </el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+
           <el-form-item prop="username">
             <el-input
               v-model="registerForm.username"
-              placeholder="请输入账号（3~20位）"
+              placeholder="请输入账号/姓名（3~20位）"
               size="large"
               :prefix-icon="User"
-              clearable
-            />
-          </el-form-item>
-
-          <el-form-item prop="name">
-            <el-input
-              v-model="registerForm.name"
-              placeholder="请输入姓名"
-              size="large"
-              :prefix-icon="UserFilled"
               clearable
             />
           </el-form-item>
@@ -115,7 +122,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { User, UserFilled, Lock, Phone, Check } from '@element-plus/icons-vue'
+import { User, UserFilled, Lock, Phone, Check, Briefcase, Brush } from '@element-plus/icons-vue'
 import { register } from '@/api/auth'
 
 const router = useRouter()
@@ -124,8 +131,8 @@ const registerFormRef = ref(null)
 const loading = ref(false)
 
 const registerForm = reactive({
+  role: 'DS',
   username: '',
-  name: '',
   phone: '',
   password: '',
   confirmPassword: ''
@@ -140,13 +147,12 @@ const validateConfirm = (rule, value, callback) => {
 }
 
 const registerRules = {
-  username: [
-    { required: true, message: '请输入账号', trigger: 'blur' },
-    { min: 3, max: 20, message: '账号长度 3~20 位', trigger: 'blur' }
+  role: [
+    { required: true, message: '请选择角色', trigger: 'change' }
   ],
-  name: [
-    { required: true, message: '请输入姓名', trigger: 'blur' },
-    { max: 20, message: '姓名不能超过 20 个字符', trigger: 'blur' }
+  username: [
+    { required: true, message: '请输入账号/姓名', trigger: 'blur' },
+    { min: 3, max: 20, message: '长度 3~20 位', trigger: 'blur' }
   ],
   phone: [
     { required: true, message: '请输入手机号', trigger: 'blur' },
@@ -175,8 +181,9 @@ async function handleRegister() {
     await register({
       username: registerForm.username,
       password: registerForm.password,
-      name: registerForm.name,
-      phone: registerForm.phone
+      name: registerForm.username,
+      phone: registerForm.phone,
+      role: registerForm.role
     })
     ElMessage.success('注册成功，请登录')
     router.push({
@@ -315,6 +322,32 @@ async function handleRegister() {
 
 .register-form {
   margin-bottom: 16px;
+}
+
+.role-select {
+  width: 100%;
+  display: flex;
+}
+
+.role-select :deep(.el-radio-button__inner) {
+  flex: 1;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  height: auto;
+}
+
+.role-select :deep(.el-radio-button__inner .el-icon) {
+  font-size: 20px;
+}
+
+.role-select :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
 }
 
 .register-btn {
