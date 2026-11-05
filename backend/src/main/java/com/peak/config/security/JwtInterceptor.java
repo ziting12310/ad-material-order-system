@@ -47,6 +47,15 @@ public class JwtInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        // ①.5 文件预览放行：浏览器直接打开 URL（<img src>/<a href>）无法携带 Authorization，
+        //     仅对 GET /v1/files/{fileId} 且未带令牌时匿名放行；
+        //     带令牌的请求仍走下方正常解析，保留数据范围校验。
+        if ("GET".equalsIgnoreCase(request.getMethod())
+                && isFilePreviewRequest(request)
+                && request.getHeader(headerName) == null) {
+            return true;
+        }
+
         // ② 取 Authorization Header
         String authHeader = request.getHeader(headerName);
         if (authHeader == null || !authHeader.startsWith(prefix)) {
@@ -94,6 +103,25 @@ public class JwtInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
                                 Object handler, Exception ex) {
         UserContext.clear();
+    }
+
+    /**
+     * 判断是否文件预览路径：GET /v1/files/{fileId}
+     *
+     * <p>只匹配单段 fileId，/v1/files/presign、/v1/files/upload、/v1/files/reference-files/confirm
+     * 均为 POST，且 upload/confirm 的路径段数不同，不会被误放行。</p>
+     */
+    private boolean isFilePreviewRequest(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)) {
+            uri = uri.substring(contextPath.length());
+        }
+        if (!uri.startsWith("/v1/files/")) {
+            return false;
+        }
+        String rest = uri.substring("/v1/files/".length());
+        return !rest.isEmpty() && !rest.contains("/");
     }
 
     /** 统一写 401 响应 */

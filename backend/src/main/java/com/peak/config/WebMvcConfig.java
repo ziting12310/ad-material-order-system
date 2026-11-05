@@ -18,7 +18,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  *  - OPTIONS 方法         — 由 JwtInterceptor 放行（CORS 预检）
  *
  * <p>注：/v1/files/presign 已移出白名单（原设计允许匿名申请上传凭证，存在被刷接口的风险），
- * 现统一要求 JWT，与 upload / download 保持一致。</p>
+ * 现统一要求 JWT，与 upload / confirm 保持一致。
+ * 唯一的例外是 GET /v1/files/{fileId}（文件预览）：浏览器直接打开 URL 无法携带
+ * Authorization，由 JwtInterceptor 在"无令牌"时单独放行；带令牌仍按数据范围校验。</p>
  */
 @Configuration
 @RequiredArgsConstructor
