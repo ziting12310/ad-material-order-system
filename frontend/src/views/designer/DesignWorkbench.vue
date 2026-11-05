@@ -157,7 +157,7 @@
             </el-table-column>
             <el-table-column label="操作" :width="isBL ? 160 : 160" fixed="right" align="center">
               <template #default="{ row }">
-                <!-- BL：CREATED 状态显示分派按钮 -->
+                <!-- BL：CREATED 显示分派，所有状态均可查看详情 -->
                 <template v-if="isBL">
                   <el-button
                     v-if="row.status === 'CREATED'"
@@ -168,7 +168,6 @@
                     分派
                   </el-button>
                   <el-button
-                    v-else
                     type="primary"
                     link
                     size="small"
@@ -177,7 +176,7 @@
                     查看详情
                   </el-button>
                 </template>
-                <!-- DS：待接单显示接单，设计中显示上传版本，其他查看详情 -->
+                <!-- DS：待接单显示接单，设计中显示上传版本，所有状态均可查看详情 -->
                 <template v-else>
                   <!-- 待接单：显示接单按钮 -->
                   <el-button
@@ -198,9 +197,8 @@
                   >
                     上传版本
                   </el-button>
-                  <!-- 其他状态：查看详情 -->
+                  <!-- 查看详情：所有状态可见 -->
                   <el-button
-                    v-else
                     type="primary"
                     link
                     size="small"
@@ -374,6 +372,12 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 订单详情抽屉（工作台行是订单级数据，复用订单详情抽屉） -->
+    <OrderDetailDrawer
+      v-model="detailDrawerVisible"
+      :order-id="detailOrderId"
+    />
   </div>
 </template>
 
@@ -398,6 +402,7 @@ import {
 } from '@/constants'
 import { useUserStore } from '@/stores/user'
 import FileUpload from '@/components/common/FileUpload.vue'
+import OrderDetailDrawer from '@/views/order/OrderDetailDrawer.vue'
 
 const userStore = useUserStore()
 const isAM = computed(() => userStore.userInfo?.role === 'AM')
@@ -699,8 +704,13 @@ async function handleSubmitVersion() {
 }
 
 // ---------- 操作：查看详情 ----------
+// 工作台行是订单级兜底数据（row.id 即订单 id），详情复用订单详情抽屉
+const detailDrawerVisible = ref(false)
+const detailOrderId = ref(null)
+
 function handleViewDetail(row) {
-  ElMessage.info(`查看任务详情：${row.taskNo || row.id}`)
+  detailOrderId.value = row.orderId || row.id
+  detailDrawerVisible.value = true
 }
 
 // ---------- 操作：分派任务（BL） ----------

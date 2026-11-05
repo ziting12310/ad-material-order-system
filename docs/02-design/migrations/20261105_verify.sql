@@ -118,27 +118,27 @@ WHERE o.id IS NULL;
 -- 5.1 已完结订单必须回填 final_version_id（期望 0 行）
 SELECT id, order_no, status, final_version_id
 FROM orders
-WHERE status = 'FINISHED' AND final_version_id IS NULL;
+WHERE status = 'DELIVERED' AND final_version_id IS NULL;
 
 -- 5.2 已完结订单的定稿版本必须属于本订单且 is_final = 1（期望 0 行）
 SELECT o.id, o.order_no, o.final_version_id
 FROM orders o
 LEFT JOIN design_versions v ON v.id = o.final_version_id
-WHERE o.status = 'FINISHED'
+WHERE o.status = 'DELIVERED'
   AND (v.id IS NULL OR v.order_id <> o.id OR v.is_final <> 1);
 
 -- 5.3 已分派状态必须齐备 designer_id / assigned_by / assigned_at（期望 0 行）
 SELECT id, order_no, status, designer_id, assigned_by, assigned_at
 FROM orders
-WHERE status IN ('ASSIGNED', 'REVIEWING', 'FINISHED')
+WHERE status IN ('ASSIGNED', 'DESIGNING', 'WAIT_APPROVE', 'APPROVED', 'DELIVERED')
   AND (designer_id IS NULL OR assigned_by IS NULL OR assigned_at IS NULL);
 
--- 5.4 状态只允许 4 态（期望 0 行）
+-- 5.4 状态只允许 8 态（期望 0 行）
 SELECT 'orders' AS 表, status AS 非法状态
-FROM orders WHERE status NOT IN ('CREATED', 'ASSIGNED', 'REVIEWING', 'FINISHED')
+FROM orders WHERE status NOT IN ('WAIT_CREATE', 'CREATED', 'ASSIGNED', 'DESIGNING', 'WAIT_APPROVE', 'APPROVED', 'DELIVERED', 'CANCELLED')
 UNION ALL
 SELECT 'order_tasks', status FROM order_tasks
-WHERE status NOT IN ('CREATED', 'ASSIGNED', 'REVIEWING', 'FINISHED');
+WHERE status NOT IN ('WAIT_CREATE', 'CREATED', 'ASSIGNED', 'DESIGNING', 'WAIT_APPROVE', 'APPROVED', 'DELIVERED', 'CANCELLED');
 
 -- 5.5 order_tasks.deadline 非空（期望 0 行）
 SELECT id, task_no, deadline FROM order_tasks WHERE deadline IS NULL;
