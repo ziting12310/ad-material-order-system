@@ -165,25 +165,22 @@
         </el-table-column>
       </el-table>
 
-      <!-- 加载更多 -->
+      <!-- 分页 -->
       <div class="load-more-wrap">
-        <el-button
-          v-if="hasMore"
-          type="primary"
-          plain
-          :loading="loadingMore"
-          :disabled="loadingMore"
-          @click="loadMore"
-        >
-          {{ loadingMore ? '加载中...' : '加载更多' }}
-        </el-button>
-        <div v-else-if="tableData.length > 0" class="no-more">
-          没有更多了
-        </div>
         <el-empty
-          v-else-if="!loading"
+          v-if="!loading && tableData.length === 0"
           :description="emptyText"
           :image-size="100"
+        />
+        <el-pagination
+          v-else
+          v-model:current-page="pageNum"
+          :page-size="PAGE_SIZE"
+          :total="total"
+          :pager-count="5"
+          layout="total, prev, pager, next, jumper"
+          background
+          @current-change="handleCurrentChange"
         />
       </div>
     </el-card>
@@ -258,10 +255,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, RefreshLeft } from '@element-plus/icons-vue'
-import { listOrders, deleteOrder, listDesigners, assignTask, assignOrder, getOrderDetail } from '@/api'
+import { pageOrders, deleteOrder, listDesigners, assignTask, assignOrder, getOrderDetail } from '@/api'
 import {
   MATERIAL_OPTIONS,
   ORDER_STATUS_OPTIONS,
@@ -314,12 +311,12 @@ const filters = reactive({
   deliveryDateRange: []
 })
 
-// ---------- 表格 & 游标分页 ----------
+// ---------- 表格 & 页码分页 ----------
 const loading = ref(false)
-const loadingMore = ref(false)
 const tableData = ref([])
-const nextCursor = ref(null)
-const hasMore = ref(true)
+const pageNum = ref(1)      // 当前页码（默认 1）
+const total = ref(0)        // 总记录数（接口返回）
+const pages = ref(0)        // 总页数（接口返回）
 
 // ---------- 弹窗 / 抽屉 ----------
 const createDialogVisible = ref(false)
@@ -356,23 +353,13 @@ function getApprovedCount(row) {
   return 0
 }
 
-// ---------- 数据加载（游标分页） ----------
-async function fetchList(isLoadMore = false) {
-  if (isLoadMore) {
-    if (!hasMore.value || loadingMore.value) return
-    loadingMore.value = true
-  } else {
-    loading.value = true
-  }
-
+// ---------- 数据加载（页码分页） ----------
+async function fetchList() {
+  loading.value = true
   try {
     const params = {
-      limit: PAGE_SIZE
-    }
-
-    // 游标
-    if (isLoadMore && nextCursor.value) {
-      params.cursor = nextCursor.value
+      pageNum: pageNum.value,
+      pageSize: PAGE_SIZE
     }
 
     // 筛选条件
@@ -384,73 +371,36 @@ async function fetchList(isLoadMore = false) {
       params.deliveryDateTo = filters.deliveryDateRange[1]
     }
 
-    const res = await listOrders(params)
+    const res = await pageOrders(params)
 
-    if (isLoadMore) {
-      // 追加模式
-      if (res.list && res.list.length > 0) {
-        tableData.value = [...tableData.value, ...res.list]
-      }
-    } else {
-      // 重置
-      tableData.value = res.list || []
-    }
-
-    nextCursor.value = res.nextCursor || null
-    hasMore.value = !!res.hasMore
+    tableData.value = res.list || []
+    total.value = res.total || 0
+    pages.value = res.pages || 0
   } catch (e) {
     // 错误已由拦截器统一处理
-    if (!isLoadMore) {
-      tableData.value = []
-    }
-    hasMore.value = false
+    tableData.value = []
+    total.value = 0
+    pages.value = 0
   } finally {
-    if (isLoadMore) {
-      loadingMore.value = false
-    } else {
-      loading.value = false
-    }
+    loading.value = false
   }
 }
 
-function loadMore() {
-  fetchList(true)
+// 点击分页切换页码 → 自动带上对应 pageNum 发起新请求
+function handleCurrentChange(page) {
+  pageNum.value = page
+  fetchList()
 }
 
-// ---------- 上拉加载 ----------
-let scrollContainer = null
-
-function handleScroll() {
-  if (!scrollContainer) return
-  const { scrollTop, scrollHeight, clientHeight } = scrollContainer
-  // 距离底部 100px 时触发加载更多
-  if (scrollHeight - scrollTop - clientHeight < 100) {
-    if (hasMore.value && !loadingMore.value && !loading.value) {
-      loadMore()
-    }
-  }
-}
-
-function setupScrollListener() {
-  // 实际滚动容器是布局主内容区 el-main（class="layout-main"）
-  scrollContainer = document.querySelector('.layout-main')
-  if (scrollContainer) {
-    scrollContainer.addEventListener('scroll', handleScroll, { passive: true })
-  }
-}
-
-function removeScrollListener() {
-  if (scrollContainer) {
-    scrollContainer.removeEventListener('scroll', handleScroll)
-    scrollContainer = null
-  }
+// 回到第一页并重新加载（搜索/重置/增删改/分派成功后调用）
+function reloadFirstPage() {
+  pageNum.value = 1
+  fetchList()
 }
 
 // ---------- 搜索 / 重置 ----------
 function handleSearch() {
-  nextCursor.value = null
-  hasMore.value = true
-  fetchList(false)
+  reloadFirstPage()
 }
 
 function handleReset() {
@@ -458,9 +408,7 @@ function handleReset() {
   filters.materialType = ''
   filters.status = ''
   filters.deliveryDateRange = []
-  nextCursor.value = null
-  hasMore.value = true
-  fetchList(false)
+  reloadFirstPage()
 }
 
 // ---------- 操作 ----------
@@ -498,9 +446,7 @@ async function handleDelete(row) {
     await deleteOrder(row.id)
     ElMessage.success('删除成功')
     // 重新加载列表
-    nextCursor.value = null
-    hasMore.value = true
-    fetchList(false)
+    reloadFirstPage()
   } catch (e) {
     // 错误已由拦截器处理
   }
@@ -508,9 +454,7 @@ async function handleDelete(row) {
 
 function handleCreateSuccess() {
   // 创建/编辑成功后刷新列表
-  nextCursor.value = null
-  hasMore.value = true
-  fetchList(false)
+  reloadFirstPage()
 }
 
 // ---------- 分派操作 ----------
@@ -616,9 +560,7 @@ async function handleAssignSubmit() {
       ElMessage.success('分派成功')
       assignDialog.visible = false
       // 刷新列表
-      nextCursor.value = null
-      hasMore.value = true
-      fetchList(false)
+      reloadFirstPage()
     } catch (e) {
       // 错误已由拦截器处理
     } finally {
@@ -629,13 +571,7 @@ async function handleAssignSubmit() {
 
 // ---------- 生命周期 ----------
 onMounted(() => {
-  fetchList(false)
-  // 延迟绑定滚动监听，确保 DOM 已渲染
-  setTimeout(setupScrollListener, 100)
-})
-
-onBeforeUnmount(() => {
-  removeScrollListener()
+  fetchList()
 })
 </script>
 

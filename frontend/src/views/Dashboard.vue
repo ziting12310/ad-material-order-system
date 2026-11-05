@@ -290,7 +290,7 @@ const statCards = computed(() => {
   return [
     { key: 'pendingAssign', label: '待分派', icon: 'Clock', status: 'CREATED', route: '/orders', color: 'info' },
     { key: 'designing', label: '设计中', icon: 'EditPen', status: 'DESIGNING', route: '/orders', color: 'warning' },
-    { key: 'waitApprove', label: '待审核', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: '/final-audit', color: 'warning' },
+    { key: 'waitApprove', label: '待审核', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: isAM.value ? '/am-workbench' : '/final-audit', color: 'warning' },
     { key: 'archived', label: '已归档', icon: 'FolderChecked', status: 'ARCHIVED', route: '/archive', color: 'success' }
   ]
 })
@@ -318,6 +318,7 @@ const quickActions = computed(() => {
     return [
       { label: '新建订单', icon: 'Plus', action: 'createOrder', bgColor: 'var(--primary-light)', color: 'var(--primary-color)' },
       { label: '订单管理', icon: 'Document', route: '/orders', bgColor: 'var(--info-light)', color: 'var(--info-color)' },
+      { label: '定稿审核', icon: 'CircleCheck', route: '/am-workbench', bgColor: 'var(--warning-light)', color: '#d97706' },
       { label: '归档查询', icon: 'FolderOpened', route: '/archive', bgColor: 'var(--success-light)', color: 'var(--success-color)' }
     ]
   }
@@ -497,6 +498,8 @@ function viewOrderDetail(row) {
 function goToAuditLogs() {
   if (isDS.value) {
     router.push({ path: '/design-workbench', query: { tab: 'audit' } })
+  } else if (isAM.value) {
+    router.push('/am-workbench')
   } else {
     router.push({ path: '/final-audit', query: { tab: 'logs' } })
   }

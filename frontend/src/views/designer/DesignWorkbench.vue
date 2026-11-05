@@ -105,7 +105,7 @@
           <!-- 任务表格 -->
           <el-table
             v-loading="loading"
-            :data="taskList"
+            :data="pagedTasks"
             border
             style="width: 100%"
             :header-cell-style="headerCellStyle"
@@ -211,25 +211,22 @@
             </el-table-column>
           </el-table>
 
-          <!-- 加载更多 -->
+          <!-- 分页（前端本地分页，每页 10 条） -->
           <div class="load-more-wrap">
-            <el-button
-              v-if="hasMore"
-              type="primary"
-              plain
-              :loading="loadingMore"
-              :disabled="loadingMore"
-              @click="loadMore"
-            >
-              {{ loadingMore ? '加载中...' : '加载更多' }}
-            </el-button>
-            <div v-else-if="taskList.length > 0" class="no-more">
-              没有更多了
-            </div>
             <el-empty
-              v-else-if="!loading"
+              v-if="!loading && taskList.length === 0"
               :description="hasTaskFilters ? '暂无符合条件的数据' : '暂无数据'"
               :image-size="100"
+            />
+            <el-pagination
+              v-else
+              v-model:current-page="pageNum"
+              :page-size="CLIENT_PAGE_SIZE"
+              :total="taskList.length"
+              :pager-count="5"
+              layout="total, prev, pager, next, jumper"
+              background
+              @current-change="handlePageChange"
             />
           </div>
         </el-tab-pane>
@@ -416,7 +413,6 @@ const pageTitle = computed(() => {
 })
 
 // ---------- 常量 ----------
-const PAGE_SIZE = 20
 const headerCellStyle = {
   background: 'var(--gray-50)',
   color: 'var(--gray-600)',
@@ -496,12 +492,22 @@ const filters = reactive({
   materialType: ''
 })
 
-// ---------- 任务列表 & 游标分页 ----------
+// ---------- 任务列表 & 前端本地分页 ----------
 const loading = ref(false)
-const loadingMore = ref(false)
-const taskList = ref([])
-const nextCursor = ref(null)
-const hasMore = ref(true)
+const taskList = ref([])                                    // 全量任务（后端一次性拉完）
+const pageNum = ref(1)                                      // 当前页码
+const CLIENT_PAGE_SIZE = 10                                 // 每页 10 条（前端切割）
+
+// 当前页展示的数据：从全量列表中本地切割
+const pagedTasks = computed(() => {
+  const start = (pageNum.value - 1) * CLIENT_PAGE_SIZE
+  return taskList.value.slice(start, start + CLIENT_PAGE_SIZE)
+})
+
+// 点击页码切换（纯前端翻页，不重新请求接口）
+function handlePageChange(page) {
+  pageNum.value = page
+}
 
 // 从订单列表中提取任务（扁平化）
 function extractTasksFromOrders(orders) {
@@ -541,76 +547,61 @@ function extractTasksFromOrders(orders) {
   })
 }
 
-async function fetchTaskList(isLoadMore = false) {
-  if (isLoadMore) {
-    if (!hasMore.value || loadingMore.value) return
-    loadingMore.value = true
-  } else {
-    loading.value = true
-  }
+/**
+ * 拉取全量任务（沿用原有 GET /orders 游标接口，不改后端）
+ * 内部循环翻完所有游标页后一次性汇总，再交给前端本地分页（每页 10 条）
+ */
+async function fetchTaskList() {
+  loading.value = true
 
   try {
-    const params = {
-      limit: PAGE_SIZE
+    const allTasks = []
+    let cursor = null
+    let hasMore = true
+
+    while (hasMore) {
+      const params = {
+        limit: 100
+      }
+
+      // 后端 applyDataScopeFilter 已按角色自动过滤：
+      //   DS → 只含其任务 designer_id = 当前用户 的订单集合（任务级过滤，正确）
+      //   BL → 全部订单
+      //   AM → 仅自己创建的订单
+      // 不再手动传 designerId，避免后端 applyOrderFilters 用订单级 orders.designer_id（任务级分派下为 NULL）做二次过滤导致 DS 查不到数据
+
+      if (cursor) params.cursor = cursor
+
+      // 状态筛选传给后端（订单级状态筛选）
+      if (filters.status) params.status = filters.status
+      if (filters.materialType) params.materialType = filters.materialType
+
+      const res = await listOrders(params)
+      allTasks.push(...extractTasksFromOrders(res.list || []))
+
+      cursor = res.nextCursor || null
+      hasMore = !!res.hasMore && !!cursor
     }
 
-    // 后端 applyDataScopeFilter 已按角色自动过滤：
-    //   DS → 只含其任务 designer_id = 当前用户 的订单集合（任务级过滤，正确）
-    //   BL → 全部订单
-    //   AM → 仅自己创建的订单
-    // 不再手动传 designerId，避免后端 applyOrderFilters 用订单级 orders.designer_id（任务级分派下为 NULL）做二次过滤导致 DS 查不到数据
-
-    if (isLoadMore && nextCursor.value) {
-      params.cursor = nextCursor.value
-    }
-
-    // 状态筛选传给后端（订单级状态筛选）
-    if (filters.status) params.status = filters.status
-    if (filters.materialType) params.materialType = filters.materialType
-
-    const res = await listOrders(params)
-    const orders = res.list || []
-    const newTasks = extractTasksFromOrders(orders)
-
-    if (isLoadMore) {
-      taskList.value = [...taskList.value, ...newTasks]
-    } else {
-      taskList.value = newTasks
-    }
-
-    nextCursor.value = res.nextCursor || null
-    hasMore.value = !!res.hasMore
+    taskList.value = allTasks
+    pageNum.value = 1   // 数据刷新后回到第一页
   } catch (e) {
-    if (!isLoadMore) {
-      taskList.value = []
-    }
-    hasMore.value = false
+    taskList.value = []
+    pageNum.value = 1
   } finally {
-    if (isLoadMore) {
-      loadingMore.value = false
-    } else {
-      loading.value = false
-    }
+    loading.value = false
   }
-}
-
-function loadMore() {
-  fetchTaskList(true)
 }
 
 // ---------- 搜索 / 重置 ----------
 function handleSearch() {
-  nextCursor.value = null
-  hasMore.value = true
-  fetchTaskList(false)
+  fetchTaskList()
 }
 
 function handleReset() {
   filters.status = ''
   filters.materialType = ''
-  nextCursor.value = null
-  hasMore.value = true
-  fetchTaskList(false)
+  fetchTaskList()
 }
 
 // 点击统计卡片快速筛选
@@ -618,9 +609,7 @@ function quickFilter(status) {
   activeTab.value = 'tasks'
   // BL 的第一个卡片是待分派(CREATED)，DS 是待接单(ASSIGNED)
   filters.status = status
-  nextCursor.value = null
-  hasMore.value = true
-  fetchTaskList(false)
+  fetchTaskList()
 }
 
 // ---------- 操作：接单 ----------
@@ -659,9 +648,7 @@ async function handleAccept(row) {
     }
     ElMessage.success('接单成功')
     // 刷新列表和统计
-    nextCursor.value = null
-    hasMore.value = true
-    fetchTaskList(false)
+    fetchTaskList()
     fetchStats()
   } catch (e) {
     // 错误已由拦截器处理
@@ -738,9 +725,7 @@ async function handleSubmitVersion() {
     ElMessage.success('版本提交成功')
     uploadDialog.visible = false
     // 刷新列表
-    nextCursor.value = null
-    hasMore.value = true
-    fetchTaskList(false)
+    fetchTaskList()
     fetchStats()
   } catch (e) {
     // 错误已由拦截器处理
@@ -863,9 +848,7 @@ async function handleAssignSubmit() {
       }
       ElMessage.success('分派成功')
       assignDialog.visible = false
-      nextCursor.value = null
-      hasMore.value = true
-      fetchTaskList(false)
+      fetchTaskList()
       fetchStats()
     } catch (e) {
       // 错误已由拦截器处理
@@ -949,7 +932,7 @@ watch(activeTab, (val) => {
 
 onMounted(() => {
   fetchStats()
-  fetchTaskList(false)
+  fetchTaskList()
 })
 </script>
 

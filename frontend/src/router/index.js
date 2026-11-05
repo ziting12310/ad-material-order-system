@@ -57,7 +57,13 @@ const routes = [
         path: 'final-audit',
         name: 'FinalAudit',
         component: () => import('@/views/audit/FinalAudit.vue'),
-        meta: { title: '定稿审核', icon: 'CircleCheck', roles: ['AM', 'BL'] }
+        meta: { title: '定稿审核', icon: 'CircleCheck', roles: ['BL'] }
+      },
+      {
+        path: 'am-workbench',
+        name: 'AmWorkbench',
+        component: () => import('@/views/am/AmWorkbench.vue'),
+        meta: { title: '客户经理工作台', icon: 'Briefcase', roles: ['AM'] }
       },
       {
         path: 'archive',

@@ -10,6 +10,7 @@ import com.peak.dto.OrderRejectRequest;
 import com.peak.dto.OrderUpdateRequest;
 import com.peak.dto.VersionOnlyRequest;
 import com.peak.vo.CursorPage;
+import com.peak.vo.PageResult;
 import com.peak.vo.OrderAssignResponseVO;
 import com.peak.vo.OrderApproveResponseVO;
 import com.peak.vo.OrderCreateResponseVO;
@@ -50,6 +51,19 @@ public interface OrderService {
      */
     CursorPage<OrderListItemVO> listOrders(Long userId, String userRole,
                                            String cursor, int limit,
+                                           String materialType, String status, String keyword,
+                                           Long designerId, Long creatorId,
+                                           String deliveryDateFrom, String deliveryDateTo);
+
+    /**
+     * 订单列表（页码分页 pageNum/pageSize 模式）
+     * <p>数据范围与过滤条件与 {@link #listOrders} 完全一致，仅分页方式不同。</p>
+     *
+     * @param pageNum  页码（从 1 开始，默认 1）
+     * @param pageSize 每页条数（默认 20，最大 100）
+     */
+    PageResult<OrderListItemVO> pageOrders(Long userId, String userRole,
+                                           int pageNum, int pageSize,
                                            String materialType, String status, String keyword,
                                            Long designerId, Long creatorId,
                                            String deliveryDateFrom, String deliveryDateTo);

@@ -137,7 +137,8 @@ const allMenus = [
   { path: '/dashboard', title: '工作台', icon: 'Odometer' },
   { path: '/orders', title: '订单管理', icon: 'Document', roles: ['AM', 'BL'] },
   { path: '/design-workbench', title: '设计师工作台', icon: 'Brush', roles: ['DS', 'BL'] },
-  { path: '/final-audit', title: '定稿审核', icon: 'CircleCheck', roles: ['AM', 'BL'] },
+  { path: '/am-workbench', title: '客户经理工作台', icon: 'Briefcase', roles: ['AM'] },
+  { path: '/final-audit', title: '定稿审核', icon: 'CircleCheck', roles: ['BL'] },
   { path: '/archive', title: '归档查询', icon: 'FolderChecked' }
 ]
 
