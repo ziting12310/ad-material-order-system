@@ -1,27 +1,75 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { login as loginApi, getUserInfo as getUserInfoApi } from '@/api/auth'
+import { getToken, setToken, clearAuth, setUserCache, getUserCache } from '@/utils/auth'
 
 /**
- * 用户信息 Store — 简化版，预留位置
- * 课程项目阶段不做真实登录，默认模拟一个 BL 角色用户
+ * 角色名称映射
  */
+const ROLE_NAME_MAP = {
+    AM: '客户经理',
+    BL: '业务负责人',
+    DS: '设计人员'
+}
+
 export const useUserStore = defineStore('user', () => {
-    // 模拟用户信息（课程项目直接写死，后续接登录接口替换）
-    const userInfo = ref({
-        id: 1,
-        username: 'admin',
-        name: '张经理',
-        role: 'BL',             // BL 业务负责人 / AM 客户经理 / DS 设计人员
-        roleName: '业务负责人',
-        avatar: ''
+    const token = ref(getToken())
+    const userInfo = ref(getUserCache())
+
+    const isLogin = computed(() => !!token.value && !!userInfo.value)
+
+    const roleName = computed(() => {
+        if (!userInfo.value) return ''
+        return ROLE_NAME_MAP[userInfo.value.role] || userInfo.value.role
     })
 
-    const isLogin = ref(true)   // 默认已登录（课程演示用）
-
-    function logout() {
-        isLogin.value = false
-        userInfo.value = null
+    /**
+     * 登录
+     * 1. 调登录接口拿 token + 用户信息
+     * 2. 存 localStorage + pinia
+     */
+    async function login(username, password) {
+        const res = await loginApi({ username, password })
+        token.value = res.token
+        userInfo.value = res.user
+        setToken(res.token)
+        setUserCache(res.user)
+        return res
     }
 
-    return { userInfo, isLogin, logout }
+    /**
+     * 刷新用户信息（页面加载时调用，确保用户态是最新的）
+     * 如果 Token 无效，会在 request 拦截器里 401 → 清本地缓存 → 跳登录
+     */
+    async function fetchUserInfo() {
+        try {
+            const user = await getUserInfoApi()
+            userInfo.value = user
+            setUserCache(user)
+            return user
+        } catch (e) {
+            // 401 的话已经在拦截器里处理了，这里确保本地状态干净
+            return null
+        }
+    }
+
+    /**
+     * 退出登录
+     * 清除本地所有认证信息
+     */
+    function logout() {
+        token.value = ''
+        userInfo.value = null
+        clearAuth()
+    }
+
+    return {
+        token,
+        userInfo,
+        isLogin,
+        roleName,
+        login,
+        fetchUserInfo,
+        logout
+    }
 })

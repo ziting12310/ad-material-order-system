@@ -5,6 +5,31 @@
  */
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { getToken, clearAuth } from '@/utils/auth'
+
+let router = null
+let userStore = null
+
+// 延迟获取 router / store，避免循环依赖
+function getRouter() {
+    if (!router) {
+        import('@/router').then(m => { router = m.default })
+    }
+    return router
+}
+
+function redirectLogin() {
+    clearAuth()
+    const r = getRouter()
+    if (r && r.currentRoute.value.path !== '/login') {
+        r.push('/login')
+    } else {
+        // 兜底：router 还没拿到就直接改 hash
+        if (window.location.pathname !== '/login') {
+            window.location.href = '/login'
+        }
+    }
+}
 
 const request = axios.create({
     baseURL: '/api/v1',
@@ -15,9 +40,10 @@ const request = axios.create({
 // ==================== 请求拦截器 ====================
 request.interceptors.request.use(
     config => {
-        // 预留 Token 注入位置（后续接登录再补）
-        // const token = getToken()
-        // if (token) config.headers['Authorization'] = `Bearer ${token}`
+        const token = getToken()
+        if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`
+        }
         return config
     },
     error => Promise.reject(error)
@@ -42,11 +68,20 @@ request.interceptors.response.use(
     },
     error => {
         const status = error.response?.status
+        const code = error.response?.data?.code
         const msg = error.response?.data?.message
 
         switch (status) {
             case 401:
-                ElMessage.error(msg || '登录已过期，请重新登录')
+                // 未授权 / Token 过期 / Token 无效 → 清本地 + 跳登录
+                if (code === 'TOKEN_EXPIRED') {
+                    ElMessage.error('登录已过期，请重新登录')
+                } else if (code === 'TOKEN_INVALID') {
+                    ElMessage.error('无效的登录凭证')
+                } else {
+                    ElMessage.error(msg || '请先登录')
+                }
+                redirectLogin()
                 break
             case 403:
                 ElMessage.error(msg || '无权访问')
@@ -72,5 +107,20 @@ request.interceptors.response.use(
         return Promise.reject(error)
     }
 )
+
+/**
+ * 注入 router 实例（供 401 时跳转用）
+ * 在 main.js 中调用
+ */
+export function setupRequestRouter(r) {
+    router = r
+}
+
+/**
+ * 注入 userStore（供清除用户态用）
+ */
+export function setupRequestStore(s) {
+    userStore = s
+}
 
 export default request
