@@ -119,14 +119,12 @@
           :description="hasFilters ? '暂无符合条件的数据' : '暂无数据'"
           :image-size="100"
         />
-        <el-pagination
+        <ClientPagination
           v-else
-          v-model:current-page="page"
-          :page-size="CLIENT_PAGE_SIZE"
-          :total="tableData.length"
-          :pager-count="5"
-          layout="total, prev, pager, next, jumper"
-          background
+          :current-page="page"
+          :page-size="archivePageSize"
+          :total="archiveTotal"
+          @current-change="handlePageChange"
         />
       </div>
     </el-card>
@@ -388,6 +386,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, RefreshLeft, Document } from '@element-plus/icons-vue'
 import { listArchivedOrders, getArchivedOrder } from '@/api/audit'
+import { useClientPagination } from '@/composables/useClientPagination'
+import ClientPagination from '@/components/common/ClientPagination.vue'
 import {
   MATERIAL_OPTIONS,
   getMaterialLabel,
@@ -397,8 +397,6 @@ import {
 
 // ---------- 常量 ----------
 const PAGE_SIZE = 20
-// 前端本地分页：每页 10 条（后端一次性返回全量后内存切片）
-const CLIENT_PAGE_SIZE = 10
 const headerCellStyle = {
   background: 'var(--gray-50)',
   color: 'var(--gray-600)',
@@ -420,14 +418,17 @@ const hasFilters = computed(() => {
 
 // ---------- 表格 & 前端本地分页 ----------
 const loading = ref(false)
-const tableData = ref([])       // 全量归档订单（后端一次拉完）
-const page = ref(1)             // 当前页码
+const tableData = ref([])       // 全量归档订单（后端一次拉完，不新增后端接口）
 
-// 当前页展示的归档数据：内存切片
-const pagedTableData = computed(() => {
-  const start = (page.value - 1) * CLIENT_PAGE_SIZE
-  return tableData.value.slice(start, start + CLIENT_PAGE_SIZE)
-})
+// 统一的前端本地分页 Hook（每页固定 10 条）
+const {
+  pagedData: pagedTableData,
+  currentPage: page,
+  total: archiveTotal,
+  pageSize: archivePageSize,
+  resetPage: resetArchivePage,
+  handlePageChange
+} = useClientPagination(tableData)
 
 // ---------- 详情抽屉 ----------
 const detailDrawer = reactive({
@@ -505,10 +506,10 @@ async function fetchList() {
       hasMore = !!res.hasMore && !!cursor
     }
     tableData.value = allRows
-    page.value = 1
+    resetArchivePage()   // 数据刷新后回到第一页
   } catch (e) {
     tableData.value = []
-    page.value = 1
+    resetArchivePage()
   } finally {
     loading.value = false
   }

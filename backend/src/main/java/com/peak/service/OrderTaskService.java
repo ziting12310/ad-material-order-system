@@ -22,7 +22,8 @@ public interface OrderTaskService {
 
     void removeTask(Long taskId, Long operatorId);
 
-    OrderTaskVO assignTask(Long taskId, TaskAssignDTO dto, Long operatorId);
+    /** 分派设计人员（CREATED → ASSIGNED）；orderId 用于校验任务是否属于当前订单 */
+    OrderTaskVO assignTask(Long orderId, Long taskId, TaskAssignDTO dto, Long operatorId);
 
     OrderStatusUpdateResponseVO acceptTask(Long taskId, Integer version, Long designerId);
 

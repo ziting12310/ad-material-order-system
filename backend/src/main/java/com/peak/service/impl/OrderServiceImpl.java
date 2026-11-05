@@ -848,11 +848,18 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteOrder(Long orderId, Long operatorId) {
-        requireRole(operatorId, UserRole.BL.getCode());
+        requireRole(operatorId, UserRole.AM.getCode());
         Order order = findOrderOrThrow(orderId);
+
+        // 客户经理仅能删除自己创建的订单，防止越权
+        if (order.getCreatedBy() == null || !order.getCreatedBy().equals(operatorId)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "无权删除该订单");
+        }
+
+        // 仅待分派（CREATED）订单允许删除；已分派/设计中/待审核/已交付等一律拒绝
         if (!OrderStatus.CREATED.getCode().equals(order.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "仅已登记状态的订单可以删除");
+                    "该订单已经分派，不可删除");
         }
         checkNotArchived(order);
 

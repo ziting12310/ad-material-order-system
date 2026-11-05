@@ -266,12 +266,12 @@ public class OrderController {
     }
 
     /**
-     * 删除订单 — 仅 BL 且订单处于 CREATED
+     * 删除订单 — 仅 AM（客户经理）且订单处于待分派（CREATED）
      * DELETE /api/v1/orders/{id}
      */
     @DeleteMapping("/{id}")
-    @RequireRole({UserRole.BL})
-    @Operation(summary = "删除订单（仅已登记状态，逻辑删除）")
+    @RequireRole({UserRole.AM})
+    @Operation(summary = "删除订单（仅待分派状态，逻辑删除）")
     public ResultVO<Void> deleteOrder(@PathVariable Long id, HttpServletRequest request) {
         Long operatorId = (Long) request.getAttribute("userId");
         orderService.deleteOrder(id, operatorId);

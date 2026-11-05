@@ -218,14 +218,11 @@
               :description="hasTaskFilters ? '暂无符合条件的数据' : '暂无数据'"
               :image-size="100"
             />
-            <el-pagination
+            <ClientPagination
               v-else
-              v-model:current-page="pageNum"
-              :page-size="CLIENT_PAGE_SIZE"
-              :total="taskList.length"
-              :pager-count="5"
-              layout="total, prev, pager, next, jumper"
-              background
+              :current-page="pageNum"
+              :page-size="taskPageSize"
+              :total="taskTotal"
               @current-change="handlePageChange"
             />
           </div>
@@ -391,6 +388,8 @@ import {
 } from '@element-plus/icons-vue'
 import { listOrders, acceptTask, uploadDesignVersion, assignTask, assignOrder, getOrderDetail, listDesigners } from '@/api'
 import { listMyAuditLogs } from '@/api/audit'
+import { useClientPagination } from '@/composables/useClientPagination'
+import ClientPagination from '@/components/common/ClientPagination.vue'
 import {
   MATERIAL_OPTIONS,
   getMaterialLabel,
@@ -495,19 +494,16 @@ const filters = reactive({
 // ---------- 任务列表 & 前端本地分页 ----------
 const loading = ref(false)
 const taskList = ref([])                                    // 全量任务（后端一次性拉完）
-const pageNum = ref(1)                                      // 当前页码
-const CLIENT_PAGE_SIZE = 10                                 // 每页 10 条（前端切割）
 
-// 当前页展示的数据：从全量列表中本地切割
-const pagedTasks = computed(() => {
-  const start = (pageNum.value - 1) * CLIENT_PAGE_SIZE
-  return taskList.value.slice(start, start + CLIENT_PAGE_SIZE)
-})
-
-// 点击页码切换（纯前端翻页，不重新请求接口）
-function handlePageChange(page) {
-  pageNum.value = page
-}
+// 统一的前端本地分页 Hook（每页固定 10 条）
+const {
+  pagedData: pagedTasks,
+  currentPage: pageNum,
+  total: taskTotal,
+  pageSize: taskPageSize,
+  resetPage: resetTaskPage,
+  handlePageChange
+} = useClientPagination(taskList)
 
 // 从订单列表中提取任务（扁平化）
 function extractTasksFromOrders(orders) {
@@ -584,10 +580,10 @@ async function fetchTaskList() {
     }
 
     taskList.value = allTasks
-    pageNum.value = 1   // 数据刷新后回到第一页
+    resetTaskPage()   // 数据刷新后回到第一页
   } catch (e) {
     taskList.value = []
-    pageNum.value = 1
+    resetTaskPage()
   } finally {
     loading.value = false
   }
@@ -805,16 +801,52 @@ async function handleAssign(row) {
   }
 }
 
+// 任务流程已结束的状态（已定稿 / 已驳回 / 已交付 / 已作废）
+const TASK_CLOSED_STATUS = ['APPROVED', 'REJECTED', 'DELIVERED', 'CANCELLED']
+
+/**
+ * 分派提交前置校验：依次判断，命中返回提示文案（不命中返回 null）
+ * ① 已分派（已有设计师负责人） ② 流程已结束 ③ 任务数据异常（不存在/不属于当前订单）
+ */
+function getAssignBlockMessage(tasks, orderId, row) {
+  // ③ 数据异常：行数据或订单ID缺失
+  if (!row || !orderId) return '任务数据异常，无法分派'
+
+  // ① 已分派：任务已有设计师负责人
+  if (tasks.some(t => t.designerId != null)) {
+    return '当前任务状态为【已分派】，按已有状态不可分派'
+  }
+
+  // ② 流程已结束：已定稿 / 已驳回等闭环状态
+  if (tasks.some(t => TASK_CLOSED_STATUS.includes(t.status))) {
+    return '该任务流程已结束，不可重新分派'
+  }
+
+  // ③ 数据异常：任务不属于当前订单
+  if (tasks.some(t => t.orderId != null && String(t.orderId) !== String(orderId))) {
+    return '任务数据异常，无法分派'
+  }
+
+  return null
+}
+
 async function handleAssignSubmit() {
   if (!assignFormRef.value) return
   assignFormRef.value.validate(async valid => {
     if (!valid) return
 
     const row = assignDialog.row
-    if (!row) return
+    const tasks = assignDialog.tasks || []
+    const orderId = row?.orderId || row?.id
+
+    // 分派前置校验：命中即弹窗提示并阻止提交（后端同规则二次校验）
+    const blockMessage = getAssignBlockMessage(tasks, orderId, row)
+    if (blockMessage) {
+      ElMessage.warning(blockMessage)
+      return
+    }
 
     // 提交前校验乐观锁 version 已随弹窗缓存
-    const tasks = assignDialog.tasks || []
     if (tasks.length > 0) {
       const missing = tasks.find(t => t.version == null)
       if (missing) {
@@ -828,7 +860,6 @@ async function handleAssignSubmit() {
 
     assignDialog.loading = true
     try {
-      const orderId = row.orderId || row.id
       if (tasks.length > 0) {
         // 任务级分派：逐个分派，每个任务带自己的乐观锁 version
         await Promise.all(tasks.map(t =>

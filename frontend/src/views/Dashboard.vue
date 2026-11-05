@@ -13,8 +13,8 @@
       </div>
     </div>
 
-    <!-- 统计卡片组（4张） -->
-    <el-row :gutter="16" class="stat-row">
+    <!-- 统计卡片组（4张）：客户经理首页不展示统计卡片 -->
+    <el-row v-if="!isAM" :gutter="16" class="stat-row">
       <el-col :xs="12" :sm="6" v-for="(card, idx) in statCards" :key="idx">
         <el-card
           class="stat-card"
@@ -213,6 +213,9 @@
       </div>
     </el-card>
 
+    <!-- 新建订单弹窗（客户经理首页快捷操作直接打开） -->
+    <OrderCreateDialog v-model="createDialogVisible" @success="handleCreateSuccess" />
+
     <!-- 订单详情抽屉 -->
     <OrderDetailDrawer
       v-model="detailDrawerVisible"
@@ -250,6 +253,7 @@ import {
   getMaterialLabel
 } from '@/constants'
 import OrderDetailDrawer from './order/OrderDetailDrawer.vue'
+import OrderCreateDialog from './order/OrderCreateDialog.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -346,6 +350,14 @@ const auditLoading = ref(false)
 // ---------- 详情抽屉 ----------
 const detailDrawerVisible = ref(false)
 const currentViewOrderId = ref(null)
+
+// ---------- 新建订单弹窗 ----------
+const createDialogVisible = ref(false)
+
+// 新建订单成功 → 刷新首页订单列表
+function handleCreateSuccess() {
+  fetchRecent(statFilterStatus.value)
+}
 
 // ---------- 统计数据加载 ----------
 async function fetchStats() {
@@ -470,6 +482,11 @@ function clearStatFilter() {
 // ---------- 操作：快捷操作 ----------
 function handleQuickAction(item) {
   if (item.action === 'createOrder') {
+    // 客户经理首页：直接打开新建订单弹窗，不再跳转订单管理页
+    if (isAM.value) {
+      createDialogVisible.value = true
+      return
+    }
     ElMessage.info('请前往订单管理页新建订单')
     router.push('/orders')
     return

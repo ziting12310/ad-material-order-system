@@ -162,14 +162,12 @@
               :description="hasPendingFilters ? '暂无符合条件的数据' : '暂无待审核任务'"
               :image-size="100"
             />
-            <el-pagination
+            <ClientPagination
               v-else
-              v-model:current-page="pendingPage"
-              :page-size="CLIENT_PAGE_SIZE"
-              :total="pendingList.length"
-              :pager-count="5"
-              layout="total, prev, pager, next, jumper"
-              background
+              :current-page="pendingPage"
+              :page-size="pendingPageSize"
+              :total="pendingTotal"
+              @current-change="handlePendingPageChange"
             />
           </div>
         </el-tab-pane>
@@ -218,13 +216,11 @@
             />
             <!-- 分页（前端本地分页，每页 10 条） -->
             <div v-if="auditLogs.length > 0" class="load-more-wrap">
-              <el-pagination
-                v-model:current-page="logsPage"
-                :page-size="CLIENT_PAGE_SIZE"
-                :total="auditLogs.length"
-                :pager-count="5"
-                layout="total, prev, pager, next, jumper"
-                background
+              <ClientPagination
+                :current-page="logsPage"
+                :page-size="logsPageSize"
+                :total="logsTotal"
+                @current-change="handleLogsPageChange"
               />
             </div>
           </div>
@@ -341,14 +337,12 @@
               :description="hasArchiveFilters ? '暂无符合条件的数据' : '暂无数据'"
               :image-size="100"
             />
-            <el-pagination
+            <ClientPagination
               v-else
-              v-model:current-page="archivePage"
-              :page-size="CLIENT_PAGE_SIZE"
-              :total="archiveList.length"
-              :pager-count="5"
-              layout="total, prev, pager, next, jumper"
-              background
+              :current-page="archivePage"
+              :page-size="archivePageSize"
+              :total="archiveTotal"
+              @current-change="handleArchivePageChange"
             />
           </div>
         </el-tab-pane>
@@ -453,14 +447,12 @@
               :description="hasRejectedFilters ? '暂无符合条件的数据' : '暂无已驳回任务'"
               :image-size="100"
             />
-            <el-pagination
+            <ClientPagination
               v-else
-              v-model:current-page="rejectedPage"
-              :page-size="CLIENT_PAGE_SIZE"
-              :total="rejectedList.length"
-              :pager-count="5"
-              layout="total, prev, pager, next, jumper"
-              background
+              :current-page="rejectedPage"
+              :page-size="rejectedPageSize"
+              :total="rejectedTotal"
+              @current-change="handleRejectedPageChange"
             />
           </div>
         </el-tab-pane>
@@ -687,6 +679,8 @@ import {
   rejectTask
 } from '@/api/audit'
 import { listOrders } from '@/api/order'
+import { useClientPagination } from '@/composables/useClientPagination'
+import ClientPagination from '@/components/common/ClientPagination.vue'
 import OrderDetailDrawer from '@/views/order/OrderDetailDrawer.vue'
 import {
   MATERIAL_OPTIONS,
@@ -714,8 +708,8 @@ const pageTitle = computed(() => props.title)
 
 // ---------- 常量 ----------
 const PAGE_SIZE = 20
-// 前端本地分页：每页 10 条（后端一次性返回全量后内存切片）
-const CLIENT_PAGE_SIZE = 10
+
+// 注：PAGE_SIZE 仅为游标接口单次拉取条数，前端分页统一走 useClientPagination
 const headerCellStyle = {
   background: 'var(--gray-50)',
   color: 'var(--gray-600)',
@@ -782,14 +776,17 @@ const pendingFilters = reactive({
 })
 const pendingLoading = ref(false)
 const pendingList = ref([])          // 全量待审核任务（后端一次拉完）
-const pendingPage = ref(1)           // 当前页码
 const pendingError = ref(false)
 
-// 当前页展示的待审核数据：内存切片
-const pagedPendingList = computed(() => {
-  const start = (pendingPage.value - 1) * CLIENT_PAGE_SIZE
-  return pendingList.value.slice(start, start + CLIENT_PAGE_SIZE)
-})
+// 统一的前端本地分页 Hook（每页固定 10 条）
+const {
+  pagedData: pagedPendingList,
+  currentPage: pendingPage,
+  total: pendingTotal,
+  pageSize: pendingPageSize,
+  resetPage: resetPendingPage,
+  handlePageChange: handlePendingPageChange
+} = useClientPagination(pendingList)
 
 /**
  * 拉取全量待审核任务（沿用原游标接口，循环翻完所有页后汇总；后端不改）
@@ -818,11 +815,11 @@ async function fetchPendingList() {
     }
 
     pendingList.value = allTasks
-    pendingPage.value = 1
+    resetPendingPage()
   } catch (e) {
     pendingError.value = true
     pendingList.value = []
-    pendingPage.value = 1
+    resetPendingPage()
   } finally {
     pendingLoading.value = false
   }
@@ -841,20 +838,23 @@ function handlePendingReset() {
 // ========== 审核记录 Tab ==========
 const logsLoading = ref(false)
 const auditLogs = ref([])
-const logsPage = ref(1)
 
-// 当前页展示的审核记录：内存切片
-const pagedAuditLogs = computed(() => {
-  const start = (logsPage.value - 1) * CLIENT_PAGE_SIZE
-  return auditLogs.value.slice(start, start + CLIENT_PAGE_SIZE)
-})
+// 统一的前端本地分页 Hook（每页固定 10 条）
+const {
+  pagedData: pagedAuditLogs,
+  currentPage: logsPage,
+  total: logsTotal,
+  pageSize: logsPageSize,
+  resetPage: resetLogsPage,
+  handlePageChange: handleLogsPageChange
+} = useClientPagination(auditLogs)
 
 async function fetchAuditLogs() {
   logsLoading.value = true
   try {
     const res = await listMyAuditLogs(50)
     auditLogs.value = res.list || res || []
-    logsPage.value = 1
+    resetLogsPage()
   } catch (e) {
     // mock 数据
     auditLogs.value = [
@@ -900,13 +900,16 @@ const archiveFilters = reactive({
 })
 const archiveLoading = ref(false)
 const archiveList = ref([])          // 全量已定稿任务（后端一次拉完）
-const archivePage = ref(1)           // 当前页码
 
-// 当前页展示的已定稿数据：内存切片
-const pagedArchiveList = computed(() => {
-  const start = (archivePage.value - 1) * CLIENT_PAGE_SIZE
-  return archiveList.value.slice(start, start + CLIENT_PAGE_SIZE)
-})
+// 统一的前端本地分页 Hook（每页固定 10 条）
+const {
+  pagedData: pagedArchiveList,
+  currentPage: archivePage,
+  total: archiveTotal,
+  pageSize: archivePageSize,
+  resetPage: resetArchivePage,
+  handlePageChange: handleArchivePageChange
+} = useClientPagination(archiveList)
 
 /**
  * 拉取全量已定稿任务（沿用原游标接口，循环翻完所有页后汇总；后端不改）
@@ -935,10 +938,10 @@ async function fetchArchiveList() {
       hasMore = !!res.hasMore && !!cursor
     }
     archiveList.value = allTasks
-    archivePage.value = 1
+    resetArchivePage()
   } catch (e) {
     archiveList.value = []
-    archivePage.value = 1
+    resetArchivePage()
   } finally {
     archiveLoading.value = false
   }
@@ -992,18 +995,21 @@ const rejectedFilters = reactive({
 })
 const rejectedLoading = ref(false)
 const rejectedList = ref([])         // 全量已驳回任务（后端一次拉完）
-const rejectedPage = ref(1)          // 当前页码
 const rejectedError = ref(false)
 
 const hasRejectedFilters = computed(() => {
   return !!(rejectedFilters.keyword || rejectedFilters.materialType)
 })
 
-// 当前页展示的已驳回数据：内存切片
-const pagedRejectedList = computed(() => {
-  const start = (rejectedPage.value - 1) * CLIENT_PAGE_SIZE
-  return rejectedList.value.slice(start, start + CLIENT_PAGE_SIZE)
-})
+// 统一的前端本地分页 Hook（每页固定 10 条）
+const {
+  pagedData: pagedRejectedList,
+  currentPage: rejectedPage,
+  total: rejectedTotal,
+  pageSize: rejectedPageSize,
+  resetPage: resetRejectedPage,
+  handlePageChange: handleRejectedPageChange
+} = useClientPagination(rejectedList)
 
 /**
  * 拉取全量已驳回任务（沿用原游标接口，循环翻完所有页后汇总；后端不改）
@@ -1027,11 +1033,11 @@ async function fetchRejectedList() {
       hasMore = !!res.hasMore && !!cursor
     }
     rejectedList.value = allTasks
-    rejectedPage.value = 1
+    resetRejectedPage()
   } catch (e) {
     rejectedError.value = true
     rejectedList.value = []
-    rejectedPage.value = 1
+    resetRejectedPage()
   } finally {
     rejectedLoading.value = false
   }
