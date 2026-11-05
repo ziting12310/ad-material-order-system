@@ -118,10 +118,19 @@
             {{ formatDateTime(row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right" align="center">
+        <el-table-column label="操作" :width="isBL ? 260 : 180" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleView(row)">
               查看
+            </el-button>
+            <el-button
+              v-if="row.status === 'CREATED' && isBL"
+              type="primary"
+              link
+              size="small"
+              @click="handleAssign(row)"
+            >
+              分派
             </el-button>
             <el-button
               v-if="row.status === 'CREATED'"
@@ -162,7 +171,7 @@
         </div>
         <el-empty
           v-else-if="!loading"
-          description="暂无订单数据"
+          :description="hasFilters ? '暂无符合条件的数据' : '暂无数据'"
           :image-size="100"
         />
       </div>
@@ -180,22 +189,86 @@
       v-model="detailDrawerVisible"
       :order-id="currentViewId"
     />
+
+    <!-- 分派弹窗 -->
+    <el-dialog
+      v-model="assignDialog.visible"
+      title="分派订单"
+      width="480px"
+      :close-on-click-modal="false"
+    >
+      <el-form
+        ref="assignFormRef"
+        :model="assignForm"
+        :rules="assignRules"
+        label-width="80px"
+      >
+        <el-form-item label="订单编号">
+          <span class="mono-text">{{ assignDialog.row?.orderNo || '—' }}</span>
+        </el-form-item>
+        <el-form-item label="客户名称">
+          {{ assignDialog.row?.customerName || '—' }}
+        </el-form-item>
+        <el-form-item label="选择设计师" prop="designerId">
+          <el-select
+            v-model="assignForm.designerId"
+            placeholder="请选择设计师"
+            filterable
+            style="width: 100%"
+            :loading="designerLoading"
+          >
+            <el-option
+              v-for="d in designerList"
+              :key="d.id"
+              :label="d.name + ' (' + (d.username || d.id) + ')'"
+              :value="d.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="分派备注" prop="remark">
+          <el-input
+            v-model="assignForm.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入分派备注（选填）"
+            maxlength="200"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="assignDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="assignDialog.loading" @click="handleAssignSubmit">
+          确认分派
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, RefreshLeft } from '@element-plus/icons-vue'
-import { listOrders, deleteOrder } from '@/api'
+import { listOrders, deleteOrder, listDesigners, assignTask } from '@/api'
 import {
   MATERIAL_OPTIONS,
   ORDER_STATUS_OPTIONS,
   getOrderStatusLabel,
   getOrderStatusType
 } from '@/constants'
+import { useUserStore } from '@/stores/user'
 import OrderCreateDialog from './OrderCreateDialog.vue'
 import OrderDetailDrawer from './OrderDetailDrawer.vue'
+
+const userStore = useUserStore()
+const isBL = computed(() => userStore.userInfo?.role === 'BL')
+
+// 是否有筛选条件
+const hasFilters = computed(() => {
+  return !!(filters.keyword || filters.materialType || filters.status ||
+    (filters.deliveryDateRange && filters.deliveryDateRange.length === 2))
+})
 
 // ---------- 常量 ----------
 const PAGE_SIZE = 20
@@ -412,6 +485,98 @@ function handleCreateSuccess() {
   nextCursor.value = null
   hasMore.value = true
   fetchList(false)
+}
+
+// ---------- 分派操作 ----------
+const assignDialog = reactive({
+  visible: false,
+  loading: false,
+  row: null
+})
+const assignFormRef = ref(null)
+const assignForm = reactive({
+  designerId: null,
+  remark: ''
+})
+const assignRules = {
+  designerId: [
+    { required: true, message: '请选择设计师', trigger: 'change' }
+  ]
+}
+const designerList = ref([])
+const designerLoading = ref(false)
+
+async function fetchDesigners() {
+  designerLoading.value = true
+  try {
+    const res = await listDesigners()
+    designerList.value = res.list || res || []
+  } catch (e) {
+    designerList.value = []
+  } finally {
+    designerLoading.value = false
+  }
+}
+
+function handleAssign(row) {
+  assignDialog.row = row
+  assignForm.designerId = null
+  assignForm.remark = ''
+  assignDialog.visible = true
+  assignDialog.loading = false
+  // 加载设计师列表
+  if (designerList.value.length === 0) {
+    fetchDesigners()
+  }
+}
+
+async function handleAssignSubmit() {
+  if (!assignFormRef.value) return
+  assignFormRef.value.validate(async valid => {
+    if (!valid) return
+
+    const row = assignDialog.row
+    if (!row) return
+
+    assignDialog.loading = true
+    try {
+      // 任务级分派：遍历订单下所有任务，分派给同一设计师
+      const tasks = row.tasks || []
+      if (tasks.length > 0) {
+        // 有任务列表时，逐个分派任务
+        const assignPromises = tasks.map(task =>
+          assignTask(row.id, task.id, {
+            designerId: assignForm.designerId,
+            remark: assignForm.remark
+          })
+        )
+        await Promise.all(assignPromises)
+      } else {
+        // 没有任务列表时，尝试订单级分派（后端若支持）
+        // 兜底：调用第一个任务的分派，或直接调用订单级接口
+        try {
+          await assignTask(row.id, row.id, {
+            designerId: assignForm.designerId,
+            remark: assignForm.remark
+          })
+        } catch (e) {
+          // 订单级分派失败的话，提示用户
+          throw e
+        }
+      }
+
+      ElMessage.success('分派成功')
+      assignDialog.visible = false
+      // 刷新列表
+      nextCursor.value = null
+      hasMore.value = true
+      fetchList(false)
+    } catch (e) {
+      // 错误已由拦截器处理
+    } finally {
+      assignDialog.loading = false
+    }
+  })
 }
 
 // ---------- 生命周期 ----------

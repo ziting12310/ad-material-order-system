@@ -3,15 +3,20 @@ package com.peak.common.enums;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
+import java.util.Set;
+
 /**
  * 订单状态枚举（A 模块固定流转版）— M1登记 → M2分派 → M4版本意见 → M5定稿交付
  *
  * <p>业务流转顺序（固定）：M0底座 → M1(CREATED) → M2(ASSIGNED) → M4(REVIEWING) → M5(FINISHED)。
  * 允许的跃迁边与校验逻辑见 {@link com.peak.util.OrderStateMachineUtil}。</p>
  *
- * <p>与同包 {@link OrderStatus}（旧全量 7 态：DESIGNING / WAIT_APPROVE / APPROVED / DELIVERED 等）并存。
- * <b>兼容声明</b>：新状态机只管控【新 4 态订单】；DB 存量旧订单的 status 是旧 7 态字符串，
- * 经 {@link #safeOf} 解析为 null 后由工具类放行、走原有老逻辑；
+ * <p>与同包 {@link OrderStatus}（旧模型，共 8 个值）并存。
+ * <b>兼容声明</b>：新状态机只管控【新 4 态订单】；DB 存量旧订单中，
+ * 旧态专属值（WAIT_CREATE / DESIGNING / WAIT_APPROVE / APPROVED / DELIVERED / CANCELLED）
+ * 经 {@link #isLegacy} 白名单命中后由工具类放行、走原有老逻辑；
+ * 白名单外的未知值 / null / 空白视为脏数据，由工具类拦截（fail-closed）。
+ * 注意：CREATED / ASSIGNED 为新旧模型同名重叠值，由新 4 态覆盖、受状态机管控，不列入旧状态白名单。
  * 跨状态模型切换需团队对齐后再改造 ServiceImpl，本版本不动老业务代码。</p>
  *
  * <p>枚举值直接作为 DB orders.status 字段 VARCHAR(32) 存储值；
@@ -30,6 +35,15 @@ public enum OrderStatusEnum {
     /** M5 — 定稿交付（唯一终态） */
     FINISHED("FINISHED", "已完成（定稿交付）");
 
+    /**
+     * 旧状态白名单（存量订单专用）— 仅用于兼容放行判定，不参与新状态机跃迁校验。
+     *
+     * <p>只收录「旧模型独有」的状态值；CREATED / ASSIGNED 新旧同名，已由新 4 态覆盖，故不在此列。
+     * 白名单是「关闭集合」：不在此表且不在新 4 态的值均视为脏数据，由工具类拦截。</p>
+     */
+    private static final Set<String> LEGACY_ONLY_CODES = Set.of(
+            "WAIT_CREATE", "DESIGNING", "WAIT_APPROVE", "APPROVED", "DELIVERED", "CANCELLED");
+
     /** DB 存储值（code） */
     private final String code;
     /** 中文显示名 */
@@ -40,17 +54,36 @@ public enum OrderStatusEnum {
      *
      * <p>行为约定：
      *  ① dbStatus 在新 4 态集合内 → 返回对应枚举，走新状态机 transition 校验；
-     *  ② dbStatus 不在集合内（属于旧 7 态字符串如 DESIGNING / WAIT_APPROVE，或脏数据）→ 返回 null，
-     *     上层 OrderStateMachineUtil 判 null 后跳过状态机校验、直接放行，交给原有老逻辑处理。</p>
+     *  ② dbStatus 不在集合内（旧状态或未知脏数据）→ 返回 null，
+     *     是否为「可放行的旧状态」由 {@link #isLegacy} 单独判定，工具类据此决定放行或拦截。</p>
      *
-     * <p>注意：本方法设计上「以 null 表达旧状态」这一兼容分支，调用方必须判 null，
-     * 禁止直接解引用返回值。</p>
+     * <p>入参做 trim 归一化（容忍 DB 值带首尾空格）；null 直接返回 null，本方法自身不抛异常。</p>
      *
      * @param dbStatus DB orders.status 原始字符串
-     * @return 新 4 态枚举；旧 7 态 / 未知值返回 null（兼容分支，非异常）
+     * @return 新 4 态枚举；旧状态 / 未知值 / null → null（兼容分支，非异常）
      */
     public static OrderStatusEnum safeOf(String dbStatus) {
-        for (OrderStatusEnum s : values()) if (s.code.equals(dbStatus)) return s;
-        return null;   // 旧 7 态 / 未知值 → null，由上层工具类放行
+        if (dbStatus == null) {
+            return null;
+        }
+        String normalized = dbStatus.trim();
+        for (OrderStatusEnum s : values()) if (s.code.equals(normalized)) return s;
+        return null;
+    }
+
+    /**
+     * 是否为存量旧状态（白名单判定，关闭集合）
+     *
+     * <p>仅白名单内的 6 个旧态值返回 true，命中后由 OrderStateMachineUtil 直接放行、不做新状态机校验；
+     * null / 空串 / 空白 / 大小写不匹配 / 未知值一律返回 false —— 交由工具类按脏数据拦截，避免 fail-open。</p>
+     *
+     * @param dbStatus DB orders.status 原始字符串
+     * @return true = 可放行的旧状态；false = 非白名单值
+     */
+    public static boolean isLegacy(String dbStatus) {
+        if (dbStatus == null) {
+            return false;
+        }
+        return LEGACY_ONLY_CODES.contains(dbStatus.trim());
     }
 }

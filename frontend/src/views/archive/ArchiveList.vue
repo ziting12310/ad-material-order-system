@@ -124,7 +124,7 @@
         </div>
         <el-empty
           v-else-if="!loading"
-          description="暂无归档数据"
+          :description="hasFilters ? '暂无符合条件的数据' : '暂无数据'"
           :image-size="100"
         />
       </div>
@@ -383,7 +383,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, RefreshLeft, Document } from '@element-plus/icons-vue'
 import { listArchivedOrders, getArchivedOrder } from '@/api/audit'
@@ -407,6 +407,12 @@ const filters = reactive({
   keyword: '',
   materialType: '',
   deliveryDateRange: []
+})
+
+// 是否有筛选条件
+const hasFilters = computed(() => {
+  return !!(filters.keyword || filters.materialType ||
+    (filters.deliveryDateRange && filters.deliveryDateRange.length === 2))
 })
 
 // ---------- 表格 & 游标分页 ----------

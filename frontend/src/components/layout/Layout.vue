@@ -71,7 +71,7 @@
       </el-header>
 
       <!-- 主内容 -->
-      <el-main class="layout-main">
+      <el-main class="layout-main" v-loading="pageLoading" :element-loading-text="'加载中...'">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
@@ -91,6 +91,39 @@ import { useUserStore } from '@/stores/user'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+
+// 路由切换加载态（0.2s 防抖，快速切换不显示 loading）
+const pageLoading = ref(false)
+let loadingTimer = null
+
+// 路由前置守卫：开始计时
+router.beforeEach((to, from, next) => {
+  // 清除之前的定时器
+  if (loadingTimer) {
+    clearTimeout(loadingTimer)
+    loadingTimer = null
+  }
+  // 0.2s 防抖：如果 0.2s 内路由切换完成，则不显示 loading
+  loadingTimer = setTimeout(() => {
+    pageLoading.value = true
+  }, 200)
+  next()
+})
+
+// 路由后置守卫：关闭加载
+router.afterEach(() => {
+  // 延迟一帧，确保新页面 DOM 开始渲染
+  requestAnimationFrame(() => {
+    if (loadingTimer) {
+      clearTimeout(loadingTimer)
+      loadingTimer = null
+    }
+    // 再给一帧时间让内容渲染
+    requestAnimationFrame(() => {
+      pageLoading.value = false
+    })
+  })
+})
 
 const sidebarWidth = 'var(--sidebar-width)'
 
