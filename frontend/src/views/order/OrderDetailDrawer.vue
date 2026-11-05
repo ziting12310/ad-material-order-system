@@ -224,6 +224,13 @@
 
         <!-- 修改意见 -->
         <el-tab-pane label="修改意见" name="feedbacks">
+          <!-- 提交意见按钮（仅 WAIT_APPROVE 状态且角色为 AM/BL 时显示） -->
+          <div v-if="canSubmitFeedback" class="feedback-toolbar">
+            <el-button type="primary" :icon="EditPen" @click="openFeedbackDialog">
+              提交意见
+            </el-button>
+          </div>
+
           <div class="feedback-list">
             <div
               v-for="(item, index) in detail.feedbacks || []"
@@ -243,6 +250,9 @@
                   {{ feedbackStatusLabel(item.status) }}
                 </el-tag>
               </div>
+              <div v-if="item.version || item.versionNo" class="feedback-version">
+                版本：V{{ item.version || item.versionNo }}
+              </div>
               <div class="feedback-content">{{ item.content || item.description || '—' }}</div>
             </div>
           </div>
@@ -255,9 +265,9 @@
 
         <!-- 操作日志 -->
         <el-tab-pane label="操作日志" name="logs">
-          <el-timeline class="log-timeline">
+          <el-timeline v-if="sortedLogs.length > 0" class="log-timeline">
             <el-timeline-item
-              v-for="(log, index) in detail.operationLogs || []"
+              v-for="(log, index) in sortedLogs"
               :key="log.id || index"
               :timestamp="formatDateTime(log.operatedAt || log.createdAt)"
               :type="logTypeColor(log.action)"
@@ -265,11 +275,18 @@
             >
               <div class="log-item">
                 <div class="log-title">
-                  <span class="log-action">{{ log.actionName || log.action }}</span>
+                  <el-tag
+                    :type="logTypeColor(log.action)"
+                    effect="light"
+                    size="small"
+                    round
+                  >
+                    {{ logActionLabel(log.action) }}
+                  </el-tag>
                   <span class="log-operator">{{ log.operatorName || log.operator || '系统' }}</span>
                 </div>
-                <div v-if="log.detail || log.remark" class="log-detail">
-                  {{ log.detail || log.remark }}
+                <div v-if="log.detail || log.remark || log.note" class="log-detail">
+                  {{ log.detail || log.remark || log.note }}
                 </div>
               </div>
             </el-timeline-item>
@@ -282,14 +299,64 @@
         </el-tab-pane>
       </el-tabs>
     </div>
+
+    <!-- 提交修改意见弹窗 -->
+    <el-dialog
+      v-model="feedbackDialog.visible"
+      title="提交修改意见"
+      width="520px"
+      :close-on-click-modal="false"
+    >
+      <el-form
+        ref="feedbackFormRef"
+        :model="feedbackForm"
+        :rules="feedbackRules"
+        label-width="80px"
+      >
+        <el-form-item label="订单编号">
+          <span class="mono-text">{{ detail.orderNo || '—' }}</span>
+        </el-form-item>
+        <el-form-item label="选择版本" prop="version">
+          <el-select
+            v-model="feedbackForm.version"
+            placeholder="请选择版本"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="v in detail.designVersions || []"
+              :key="v.id || v.version || v.versionNo"
+              :label="'V' + (v.version || v.versionNo || '1') + ' - ' + (v.description || '无说明')"
+              :value="v.version || v.versionNo || 1"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="意见内容" prop="content">
+          <el-input
+            v-model="feedbackForm.content"
+            type="textarea"
+            :rows="5"
+            placeholder="请输入修改意见内容（1-500字）"
+            maxlength="500"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="feedbackDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackDialog.loading" @click="handleSubmitFeedback">
+          提交
+        </el-button>
+      </template>
+    </el-dialog>
   </el-drawer>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document } from '@element-plus/icons-vue'
-import { getOrderDetail } from '@/api'
+import { Document, EditPen } from '@element-plus/icons-vue'
+import { getOrderDetail, submitFeedback, listFeedbacks } from '@/api'
+import { useUserStore } from '@/stores/user'
 import {
   MATERIAL_OPTIONS,
   getOrderStatusLabel,
@@ -297,6 +364,8 @@ import {
   getMaterialLabel,
   TASK_STATUS_MAP
 } from '@/constants'
+
+const userStore = useUserStore()
 
 // ---------- Props / Emits ----------
 const props = defineProps({
@@ -310,7 +379,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'refresh'])
 
 // ---------- 计算属性 ----------
 const visible = computed({
@@ -322,6 +391,24 @@ const visible = computed({
 const loading = ref(false)
 const activeTab = ref('basic')
 const detail = ref({})
+
+// ---------- 角色/权限判断 ----------
+const canSubmitFeedback = computed(() => {
+  const role = userStore.userInfo?.role
+  const status = detail.value?.status
+  // 仅 WAIT_APPROVE 状态且角色为 AM/BL 时显示
+  return status === 'WAIT_APPROVE' && (role === 'AM' || role === 'BL')
+})
+
+// ---------- 操作日志按时间倒序排列 ----------
+const sortedLogs = computed(() => {
+  const logs = detail.value.operationLogs || []
+  return [...logs].sort((a, b) => {
+    const timeA = new Date(a.operatedAt || a.createdAt).getTime()
+    const timeB = new Date(b.operatedAt || b.createdAt).getTime()
+    return timeB - timeA
+  })
+})
 
 // ---------- 任务状态辅助函数 ----------
 function getTaskStatusLabel(status) {
@@ -351,23 +438,48 @@ function feedbackStatusType(status) {
   return map[status] || 'info'
 }
 
-// ---------- 日志颜色 ----------
-function logTypeColor(action) {
+// ---------- 操作日志类型映射 ----------
+function logActionLabel(action) {
   const map = {
-    CREATE: 'primary',
-    UPDATE: 'warning',
-    DELETE: 'danger',
-    APPROVE: 'success',
-    REJECT: 'danger',
-    ASSIGN: 'primary',
-    DELIVER: 'success',
-    CANCEL: 'danger'
+    CREATE: '创建',
+    UPDATE: '更新',
+    DELETE: '删除',
+    APPROVE: '定稿',
+    REJECT: '驳回',
+    ASSIGN: '分派',
+    ACCEPT: '接单',
+    SUBMIT: '提交审核',
+    DELIVER: '交付',
+    CANCEL: '作废',
+    ARCHIVE: '归档',
+    FEEDBACK: '意见反馈'
   }
-  if (!action) return 'info'
+  if (!action) return '其他'
   const upper = String(action).toUpperCase()
   for (const key of Object.keys(map)) {
     if (upper.includes(key)) return map[key]
   }
+  return '其他'
+}
+
+function logTypeColor(action) {
+  if (!action) return 'info'
+  const upper = String(action).toUpperCase()
+  // 创建：info
+  if (upper.includes('CREATE')) return 'info'
+  // 分派：primary
+  if (upper.includes('ASSIGN')) return 'primary'
+  // 接单：warning
+  if (upper.includes('ACCEPT')) return 'warning'
+  // 定稿：success
+  if (upper.includes('APPROVE')) return 'success'
+  // 驳回：danger
+  if (upper.includes('REJECT')) return 'danger'
+  // 交付：success
+  if (upper.includes('DELIVER') || upper.includes('ARCHIVE')) return 'success'
+  // 作废：danger
+  if (upper.includes('CANCEL') || upper.includes('DELETE')) return 'danger'
+  // 其他：info
   return 'info'
 }
 
@@ -409,6 +521,16 @@ async function fetchDetail() {
   }
 }
 
+// ---------- 刷新意见列表 ----------
+async function refreshFeedbacks() {
+  try {
+    const res = await listFeedbacks(props.orderId)
+    detail.value.feedbacks = res.list || res || []
+  } catch (e) {
+    // 保持原状
+  }
+}
+
 function handleOpen() {
   activeTab.value = 'basic'
   detail.value = {}
@@ -436,6 +558,65 @@ function previewVersion(row) {
   } else {
     ElMessage.info('预览功能开发中')
   }
+}
+
+// ========== 提交修改意见 ==========
+const feedbackDialog = ref({
+  visible: false,
+  loading: false
+})
+const feedbackFormRef = ref(null)
+const feedbackForm = ref({
+  version: null,
+  content: ''
+})
+const feedbackRules = {
+  version: [
+    { required: true, message: '请选择版本', trigger: 'change' }
+  ],
+  content: [
+    { required: true, message: '请输入意见内容', trigger: 'blur' },
+    { min: 1, max: 500, message: '长度在 1 到 500 个字符', trigger: 'blur' }
+  ]
+}
+
+function openFeedbackDialog() {
+  // 默认选中最新版本
+  const versions = detail.value.designVersions || []
+  if (versions.length > 0) {
+    const latest = versions[versions.length - 1]
+    feedbackForm.value.version = latest.version || latest.versionNo || 1
+  } else {
+    feedbackForm.value.version = null
+  }
+  feedbackForm.value.content = ''
+  feedbackDialog.value.visible = true
+  feedbackDialog.value.loading = false
+}
+
+async function handleSubmitFeedback() {
+  if (!feedbackFormRef.value) return
+  feedbackFormRef.value.validate(async valid => {
+    if (!valid) return
+
+    feedbackDialog.value.loading = true
+    try {
+      await submitFeedback(props.orderId, {
+        version: feedbackForm.value.version,
+        content: feedbackForm.value.content
+      })
+      ElMessage.success('意见提交成功')
+      feedbackDialog.value.visible = false
+      // 刷新意见列表 + 订单详情
+      refreshFeedbacks()
+      fetchDetail()
+      emit('refresh')
+    } catch (e) {
+      // 错误已由拦截器处理
+    } finally {
+      feedbackDialog.value.loading = false
+    }
+  })
 }
 </script>
 
@@ -536,6 +717,13 @@ function previewVersion(row) {
   font-family: 'SF Mono', Monaco, monospace;
 }
 
+/* ========== 修改意见 ========== */
+.feedback-toolbar {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
 .feedback-list {
   margin-top: 12px;
   display: flex;
@@ -554,7 +742,7 @@ function previewVersion(row) {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .feedback-author {
@@ -569,6 +757,13 @@ function previewVersion(row) {
   flex: 1;
 }
 
+.feedback-version {
+  font-size: 12px;
+  color: var(--primary-color);
+  margin-bottom: 6px;
+  font-family: 'SF Mono', Monaco, monospace;
+}
+
 .feedback-content {
   color: var(--gray-700);
   font-size: 14px;
@@ -577,6 +772,7 @@ function previewVersion(row) {
   word-break: break-all;
 }
 
+/* ========== 操作日志时间线 ========== */
 .log-timeline {
   margin-top: 12px;
   padding-left: 8px;
@@ -592,6 +788,7 @@ function previewVersion(row) {
   gap: 10px;
   font-size: 14px;
   color: var(--gray-800);
+  margin-bottom: 6px;
 }
 
 .log-action {
@@ -604,9 +801,9 @@ function previewVersion(row) {
 }
 
 .log-detail {
-  margin-top: 4px;
   font-size: 13px;
   color: var(--gray-600);
   line-height: 1.5;
+  padding-left: 2px;
 }
 </style>

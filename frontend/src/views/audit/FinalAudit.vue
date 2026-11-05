@@ -160,7 +160,7 @@
             </div>
             <el-empty
               v-else-if="!pendingLoading"
-              description="暂无待审核任务"
+              :description="hasPendingFilters ? '暂无符合条件的数据' : '暂无数据'"
               :image-size="100"
             />
           </div>
@@ -315,7 +315,7 @@
             </div>
             <el-empty
               v-else-if="!archiveLoading"
-              description="暂无归档数据"
+              :description="hasArchiveFilters ? '暂无符合条件的数据' : '暂无数据'"
               :image-size="100"
             />
           </div>
@@ -517,7 +517,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Search,
@@ -551,6 +551,17 @@ const headerCellStyle = {
 
 // ---------- Tab ----------
 const activeTab = ref('pending')
+
+// 是否有待审核筛选条件
+const hasPendingFilters = computed(() => {
+  return !!(pendingFilters.keyword || pendingFilters.materialType)
+})
+
+// 是否有归档筛选条件
+const hasArchiveFilters = computed(() => {
+  return !!(archiveFilters.keyword || archiveFilters.materialType ||
+    (archiveFilters.deliveryDateRange && archiveFilters.deliveryDateRange.length === 2))
+})
 
 function switchToPending() {
   activeTab.value = 'pending'

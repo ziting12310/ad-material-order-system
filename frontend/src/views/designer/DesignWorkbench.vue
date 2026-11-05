@@ -196,7 +196,7 @@
             </div>
             <el-empty
               v-else-if="!loading"
-              description="暂无任务数据"
+              :description="hasTaskFilters ? '暂无符合条件的数据' : '暂无数据'"
               :image-size="100"
             />
           </div>
@@ -285,7 +285,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Search,
@@ -318,6 +318,11 @@ const headerCellStyle = {
 
 // ---------- Tab ----------
 const activeTab = ref('tasks')
+
+// 是否有任务筛选条件
+const hasTaskFilters = computed(() => {
+  return !!(filters.status || filters.materialType)
+})
 
 // ---------- 统计 ----------
 const stats = reactive({
