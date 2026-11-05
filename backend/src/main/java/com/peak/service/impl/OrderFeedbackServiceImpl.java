@@ -94,7 +94,7 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
         // ③ 状态校验：仅任务 WAIT_APPROVE 可提修改意见
         if (!OrderStatus.WAIT_APPROVE.getCode().equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "当前任务状态为 [%s]，提交修改意见需要状态为 [待定稿]",
+                    "当前任务状态为 [%s]，提交修改意见需要状态为 [待审核]",
                     OrderStatus.of(task.getStatus()) != null
                             ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
         }

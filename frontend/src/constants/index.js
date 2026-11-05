@@ -18,7 +18,7 @@ export const ORDER_STATUS_MAP = {
     CREATED:      { label: '待分派', type: 'info' },
     ASSIGNED:     { label: '已分派', type: 'primary' },
     DESIGNING:    { label: '设计中', type: 'warning' },
-    WAIT_APPROVE: { label: '待定稿', type: 'warning' },
+    WAIT_APPROVE: { label: '待审核', type: 'warning' },
     APPROVED:     { label: '已定稿', type: 'success' },
     DELIVERED:    { label: '已交付', type: 'success' },
     CANCELLED:    { label: '已作废', type: 'danger' }
@@ -29,7 +29,7 @@ export const TASK_STATUS_MAP = {
     CREATED:      { label: '待分派', type: 'info' },
     ASSIGNED:     { label: '已分派', type: 'primary' },
     DESIGNING:    { label: '设计中', type: 'warning' },
-    WAIT_APPROVE: { label: '待定稿', type: 'warning' },
+    WAIT_APPROVE: { label: '待审核', type: 'warning' },
     APPROVED:     { label: '已定稿', type: 'success' },
     REJECTED:     { label: '已驳回', type: 'danger' }
 }

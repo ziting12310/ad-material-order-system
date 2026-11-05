@@ -18,7 +18,7 @@
       <el-col :xs="12" :sm="6" v-for="(card, idx) in statCards" :key="idx">
         <el-card
           class="stat-card"
-          :class="'stat-' + card.key"
+          :class="['stat-' + card.key, { 'stat-active': statFilterStatus === card.status }]"
           shadow="never"
           v-loading="statsLoading"
           @click="handleStatClick(card)"
@@ -64,9 +64,22 @@
           <template #header>
             <div class="header-flex">
               <span class="section-title">{{ isDS ? '最近任务' : '最近订单' }}</span>
-              <el-button type="primary" link @click="handleViewAll">
-                查看全部
-              </el-button>
+              <div class="header-right">
+                <!-- 统计卡片联动筛选提示 -->
+                <el-tag
+                  v-if="statFilterStatus"
+                  type="primary"
+                  effect="light"
+                  closable
+                  class="filter-tag"
+                  @close="clearStatFilter"
+                >
+                  筛选：{{ statFilterLabel }}
+                </el-tag>
+                <el-button type="primary" link @click="handleViewAll">
+                  查看全部
+                </el-button>
+              </div>
             </div>
           </template>
           <el-table
@@ -269,7 +282,7 @@ const statCards = computed(() => {
     return [
       { key: 'pendingAccept', label: '待接单', icon: 'Clock', status: 'ASSIGNED', route: '/design-workbench', color: 'info' },
       { key: 'designing', label: '设计中', icon: 'EditPen', status: 'DESIGNING', route: '/design-workbench', color: 'warning' },
-      { key: 'waitApprove', label: '待定稿', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: '/design-workbench', color: 'warning' },
+      { key: 'waitApprove', label: '待审核', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: '/design-workbench', color: 'warning' },
       { key: 'completed', label: '已完成', icon: 'CircleCheckFilled', status: 'APPROVED', route: '/design-workbench', color: 'success' }
     ]
   }
@@ -277,7 +290,7 @@ const statCards = computed(() => {
   return [
     { key: 'pendingAssign', label: '待分派', icon: 'Clock', status: 'CREATED', route: '/orders', color: 'info' },
     { key: 'designing', label: '设计中', icon: 'EditPen', status: 'DESIGNING', route: '/orders', color: 'warning' },
-    { key: 'waitApprove', label: '待定稿', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: '/final-audit', color: 'warning' },
+    { key: 'waitApprove', label: '待审核', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: '/final-audit', color: 'warning' },
     { key: 'archived', label: '已归档', icon: 'FolderChecked', status: 'ARCHIVED', route: '/archive', color: 'success' }
   ]
 })
@@ -320,6 +333,10 @@ const quickActions = computed(() => {
 // ---------- 最近列表 ----------
 const recentList = ref([])
 const recentLoading = ref(false)
+
+/** 统计卡片联动筛选状态 — null 表示不筛选，显示全部最近记录 */
+const statFilterStatus = ref(null)
+const statFilterLabel = ref('')
 
 // ---------- 审核记录 ----------
 const auditLogs = ref([])
@@ -373,12 +390,17 @@ async function fetchStats() {
 }
 
 // ---------- 最近列表加载 ----------
-async function fetchRecent() {
+async function fetchRecent(filterStatus = null) {
   recentLoading.value = true
   try {
+    // AM/BL 的"已归档"走专门的归档接口，不是 listOrders 的 status 过滤
+    const isArchivedFilter = filterStatus === 'ARCHIVED'
+
     if (isDS.value) {
       // DS：后端 applyDataScopeFilter 已自动按任务级 designer_id 过滤
-      const res = await listOrders({ limit: 10 })
+      const params = { limit: 10 }
+      if (filterStatus && filterStatus !== 'ARCHIVED') params.status = filterStatus
+      const res = await listOrders(params)
       const orders = res.list || []
       const tasks = []
       orders.forEach(order => {
@@ -393,9 +415,15 @@ async function fetchRecent() {
         }
       })
       recentList.value = tasks.slice(0, 5)
+    } else if (isArchivedFilter) {
+      // AM/BL 已归档：走归档接口
+      const res = await listArchivedOrders({ limit: 5 })
+      recentList.value = res.list || []
     } else {
-      // AM/BL：最近5条订单
-      const res = await listOrders({ limit: 5 })
+      // AM/BL 最近5条订单（带可选状态筛选）
+      const params = { limit: 5 }
+      if (filterStatus) params.status = filterStatus
+      const res = await listOrders(params)
       recentList.value = res.list || []
     }
   } catch (e) {
@@ -418,15 +446,24 @@ async function fetchAuditLogs() {
   }
 }
 
-// ---------- 操作：统计卡片点击 ----------
+// ---------- 操作：统计卡片点击 → 联动筛选最近列表 ----------
 function handleStatClick(card) {
-  if (card.route) {
-    const query = {}
-    if (card.status && card.route !== '/archive') {
-      query.status = card.status
-    }
-    router.push({ path: card.route, query })
+  // 再次点击同一卡片 = 取消筛选
+  if (statFilterStatus.value === card.status) {
+    statFilterStatus.value = null
+    statFilterLabel.value = ''
+  } else {
+    statFilterStatus.value = card.status
+    statFilterLabel.value = card.label
   }
+  fetchRecent(statFilterStatus.value)
+}
+
+/** 清除统计卡片筛选 */
+function clearStatFilter() {
+  statFilterStatus.value = null
+  statFilterLabel.value = ''
+  fetchRecent(null)
 }
 
 // ---------- 操作：快捷操作 ----------
@@ -551,6 +588,12 @@ onMounted(() => {
   box-shadow: var(--shadow-md);
 }
 
+.stat-card.stat-active {
+  border-color: var(--primary-color, #409eff);
+  border-width: 2px;
+  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.15);
+}
+
 .stat-card :deep(.el-card__body) {
   display: flex;
   align-items: center;
@@ -657,6 +700,16 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-tag {
+  margin-right: 4px;
 }
 
 /* ========== 快捷操作 ========== */

@@ -78,6 +78,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="customerName" label="公司名称" min-width="140" />
+        <el-table-column label="物料类型" width="100" align="center">
+          <template #default="{ row }">
+            {{ getMaterialLabel(row.materialType) }}
+          </template>
+        </el-table-column>
         <el-table-column label="物料数量" width="100" align="center">
           <template #default="{ row }">
             <span class="material-count">

@@ -38,7 +38,7 @@
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.waitApprove }}</div>
-            <div class="stat-label">待定稿</div>
+            <div class="stat-label">待审核</div>
           </div>
         </div>
       </el-col>
@@ -74,7 +74,7 @@
                   <el-option v-if="isBL" label="待分派" value="CREATED" />
                   <el-option label="待接单" value="ASSIGNED" />
                   <el-option label="设计中" value="DESIGNING" />
-                  <el-option label="待定稿" value="WAIT_APPROVE" />
+                  <el-option label="待审核" value="WAIT_APPROVE" />
                   <el-option label="已完成" value="APPROVED" />
                 </el-select>
               </el-form-item>

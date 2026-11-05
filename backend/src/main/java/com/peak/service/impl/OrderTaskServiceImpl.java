@@ -496,7 +496,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
 
         if (!OrderStatus.WAIT_APPROVE.getCode().equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "当前任务状态为 [%s]，仅待定稿状态可确认定稿",
+                    "当前任务状态为 [%s]，仅待审核状态可确认定稿",
                     OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
         }
 
@@ -578,7 +578,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
 
         if (!OrderStatus.WAIT_APPROVE.getCode().equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "当前任务状态为 [%s]，仅待定稿状态可驳回",
+                    "当前任务状态为 [%s]，仅待审核状态可驳回",
                     OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
         }
 

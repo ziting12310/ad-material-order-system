@@ -15,6 +15,12 @@ public class OrderTaskVO {
     @Schema(description = "任务编号", example = "T-001")
     private String taskNo;
 
+    @Schema(description = "订单号", example = "ORD-2024-001")
+    private String orderNo;
+
+    @Schema(description = "客户名称（公司）")
+    private String customerName;
+
     @Schema(description = "物料类型", example = "POSTER")
     private String materialType;
 
