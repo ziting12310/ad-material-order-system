@@ -102,7 +102,7 @@
                 <span class="order-no-text">{{ row.orderNo || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="customerName" label="客户名称" min-width="120" />
+            <el-table-column prop="customerName" label="公司名称" min-width="120" />
             <el-table-column label="物料类型" width="100">
               <template #default="{ row }">
                 {{ getMaterialLabel(row.materialType) }}
@@ -282,7 +282,7 @@
                 <span class="mono-text">{{ row.orderNo }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="customerName" label="客户名称" min-width="140" />
+            <el-table-column prop="customerName" label="公司名称" min-width="140" />
             <el-table-column label="物料数量" width="100" align="center">
               <template #default="{ row }">
                 {{ (row.tasks && row.tasks.length) || row.taskCount || 0 }} 项
@@ -354,7 +354,7 @@
             所属订单：{{ approveDialog.row?.orderNo || '—' }}
           </p>
           <p class="dialog-sub">
-            客户名称：{{ approveDialog.row?.customerName || '—' }}
+            公司名称：{{ approveDialog.row?.customerName || '—' }}
           </p>
           <p class="dialog-tip">
             定稿后任务进入归档状态，不可再修改。
@@ -401,7 +401,7 @@
         <el-form-item label="所属订单">
           {{ rejectDialog.row?.orderNo || '—' }}
         </el-form-item>
-        <el-form-item label="客户名称">
+        <el-form-item label="公司名称">
           {{ rejectDialog.row?.customerName || '—' }}
         </el-form-item>
         <el-form-item label="驳回原因" prop="rejectRemark">
@@ -450,7 +450,7 @@
           <el-descriptions-item label="订单编号">
             <span class="mono-text">{{ archiveDetail.orderNo || '—' }}</span>
           </el-descriptions-item>
-          <el-descriptions-item label="客户名称">
+          <el-descriptions-item label="公司名称">
             {{ archiveDetail.customerName || '—' }}
           </el-descriptions-item>
           <el-descriptions-item label="联系人">
@@ -534,7 +534,7 @@ import {
   RefreshLeft,
   Clock,
   CircleCheckFilled,
-  CircleCloseFilled
+  CloseCircleFilled
 } from '@element-plus/icons-vue'
 import {
   listPendingTasks,

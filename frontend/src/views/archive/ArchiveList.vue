@@ -13,11 +13,11 @@
 
     <!-- 筛选卡片 -->
     <el-card class="filter-card" shadow="never">
-      <el-form :model="filters" inline label-width="80px" @submit.prevent>
+      <el-form :modenl="filters" inline label-width="80px" @submit.prevent>
         <el-form-item label="关键字">
           <el-input
             v-model="filters.keyword"
-            placeholder="订单号/客户名称"
+            placeholder="订单号/公司名称"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -77,7 +77,7 @@
             <span class="order-no-text">{{ row.orderNo }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="customerName" label="客户名称" min-width="140" />
+        <el-table-column prop="customerName" label="公司名称" min-width="140" />
         <el-table-column label="物料数量" width="100" align="center">
           <template #default="{ row }">
             <span class="material-count">
@@ -163,7 +163,7 @@
               <el-descriptions-item label="归档状态">
                 <el-tag type="success" effect="light" round size="small">已归档</el-tag>
               </el-descriptions-item>
-              <el-descriptions-item label="客户名称">
+              <el-descriptions-item label="公司名称">
                 {{ detail.customerName || '—' }}
               </el-descriptions-item>
               <el-descriptions-item label="联系人">

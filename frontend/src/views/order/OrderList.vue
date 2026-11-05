@@ -24,7 +24,7 @@
         <el-form-item label="关键字">
           <el-input
             v-model="filters.keyword"
-            placeholder="订单号/客户名称"
+            placeholder="订单号/公司名称"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -94,7 +94,7 @@
             <span class="order-no-text">{{ row.orderNo }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="customerName" label="客户名称" min-width="140" />
+        <el-table-column prop="customerName" label="公司名称" min-width="140" />
         <el-table-column label="物料" width="120" align="center">
           <template #default="{ row }">
             <span class="material-count">{{ (row.tasks && row.tasks.length) || row.taskCount || 0 }} 项物料</span>
@@ -216,7 +216,7 @@
         <el-form-item label="订单编号">
           <span class="mono-text">{{ assignDialog.row?.orderNo || '—' }}</span>
         </el-form-item>
-        <el-form-item label="客户名称">
+        <el-form-item label="公司名称">
           {{ assignDialog.row?.customerName || '—' }}
         </el-form-item>
         <el-form-item label="选择设计师" prop="designerId">

@@ -2,177 +2,176 @@
   <el-dialog
     v-model="visible"
     :title="isEdit ? '编辑订单' : '新建订单'"
-    width="900px"
+    width="1000px"
     :close-on-click-modal="false"
     class="order-create-dialog"
     @closed="handleClosed"
   >
-    <el-form
-      ref="formRef"
-      :model="form"
-      :rules="rules"
-      label-width="90px"
-      label-position="right"
-    >
-      <!-- 基本信息 -->
-      <div class="section-title">基本信息</div>
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <el-form-item label="客户名称" prop="customerName">
-            <el-input v-model="form.customerName" placeholder="请输入客户名称" clearable />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="联系人" prop="contactName">
-            <el-input v-model="form.contactName" placeholder="请输入联系人" clearable />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="联系电话" prop="contactPhone">
-            <el-input v-model="form.contactPhone" placeholder="请输入联系电话" clearable />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="交付日期" prop="deliveryDate">
-            <el-date-picker
-              v-model="form.deliveryDate"
-              type="date"
-              placeholder="请选择交付日期"
-              value-format="YYYY-MM-DD"
-              style="width: 100%"
-            />
-          </el-form-item>
-        </el-col>
-        <el-col :span="24">
-          <el-form-item label="备注" prop="remark">
-            <el-input
-              v-model="form.remark"
-              type="textarea"
-              :rows="2"
-              placeholder="请输入备注（选填）"
-              maxlength="500"
-              show-word-limit
-            />
-          </el-form-item>
-        </el-col>
-      </el-row>
+    <div class="dialog-body">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-width="90px"
+        label-position="right"
+      >
+        <!-- 基本信息 -->
+        <div class="section-title">基本信息</div>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="公司名称" prop="customerName">
+                <el-input v-model="form.customerName" placeholder="请输入公司名称" clearable />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="联系人" prop="contactName">
+              <el-input v-model="form.contactName" placeholder="请输入联系人" clearable />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="联系电话" prop="contactPhone">
+              <el-input v-model="form.contactPhone" placeholder="请输入联系电话" clearable />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="交付日期" prop="deliveryDate">
+              <el-date-picker
+                v-model="form.deliveryDate"
+                type="date"
+                placeholder="请选择交付日期"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="备注" prop="remark">
+              <el-input
+                v-model="form.remark"
+                type="textarea"
+                :rows="2"
+                placeholder="请输入备注（选填）"
+                maxlength="500"
+                show-word-limit
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
 
-      <!-- 物料任务列表 -->
-      <div class="section-title">
-        <span>物料任务</span>
-        <span class="task-count">共 {{ form.tasks.length }} 项</span>
-      </div>
+        <!-- 物料任务列表（卡片式） -->
+        <div class="section-title">
+          <span>物料任务</span>
+          <span class="task-count">共 {{ form.tasks.length }} 项</span>
+        </div>
 
-      <div class="task-table-wrapper">
-        <el-table :data="form.tasks" border size="default" class="task-table">
-          <el-table-column label="序号" width="60" align="center">
-            <template #default="{ $index }">
-              {{ $index + 1 }}
-            </template>
-          </el-table-column>
-          <el-table-column label="物料类型" min-width="140">
-            <template #default="{ row, $index }">
-              <el-form-item
-                :prop="`tasks.${$index}.materialType`"
-                :rules="taskRules.materialType"
-                class="table-form-item"
-              >
-                <el-select
-                  v-model="row.materialType"
-                  placeholder="请选择"
-                  style="width: 100%"
-                >
-                  <el-option
-                    v-for="item in MATERIAL_OPTIONS"
-                    :key="item.value"
-                    :label="item.label"
-                    :value="item.value"
-                  />
-                </el-select>
-              </el-form-item>
-            </template>
-          </el-table-column>
-          <el-table-column label="数量" width="100">
-            <template #default="{ row, $index }">
-              <el-form-item
-                :prop="`tasks.${$index}.quantity`"
-                :rules="taskRules.quantity"
-                class="table-form-item"
-              >
-                <el-input-number
-                  v-model="row.quantity"
-                  :min="1"
-                  :max="99999"
-                  controls-position="right"
-                  style="width: 100%"
-                />
-              </el-form-item>
-            </template>
-          </el-table-column>
-          <el-table-column label="规格说明" min-width="160">
-            <template #default="{ row, $index }">
-              <el-form-item
-                :prop="`tasks.${$index}.specification`"
-                class="table-form-item"
-              >
-                <el-input v-model="row.specification" placeholder="规格说明" />
-              </el-form-item>
-            </template>
-          </el-table-column>
-          <el-table-column label="用途说明" min-width="140">
-            <template #default="{ row, $index }">
-              <el-form-item
-                :prop="`tasks.${$index}.purpose`"
-                class="table-form-item"
-              >
-                <el-input v-model="row.purpose" placeholder="用途说明" />
-              </el-form-item>
-            </template>
-          </el-table-column>
-          <el-table-column label="截止日期" width="140">
-            <template #default="{ row, $index }">
-              <el-form-item
-                :prop="`tasks.${$index}.deadline`"
-                :rules="taskRules.deadline"
-                class="table-form-item"
-              >
-                <el-date-picker
-                  v-model="row.deadline"
-                  type="date"
-                  placeholder="选择日期"
-                  value-format="YYYY-MM-DD"
-                  style="width: 100%"
-                />
-              </el-form-item>
-            </template>
-          </el-table-column>
-          <el-table-column label="备注" min-width="140">
-            <template #default="{ row }">
-              <el-input v-model="row.remark" placeholder="备注（选填）" />
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="70" align="center" fixed="right">
-            <template #default="{ $index }">
+        <div class="task-card-list">
+          <div
+            v-for="(task, index) in form.tasks"
+            :key="index"
+            class="task-card"
+          >
+            <div class="task-card-header">
+              <span class="task-index">物料 {{ index + 1 }}</span>
               <el-button
+                v-if="form.tasks.length > 1"
                 type="danger"
                 link
                 size="small"
-                :disabled="form.tasks.length <= 1"
-                @click="removeTask($index)"
+                @click="removeTask(index)"
               >
-                删除
+                <el-icon><Delete /></el-icon>删除
               </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
+            </div>
 
-      <div class="add-task-row">
-        <el-button type="primary" plain :icon="Plus" @click="addTask">
-          添加物料
-        </el-button>
-      </div>
-    </el-form>
+            <div class="task-card-body">
+              <el-row :gutter="16">
+                <el-col :span="8">
+                  <el-form-item
+                    :prop="`tasks.${index}.materialType`"
+                    :rules="taskRules.materialType"
+                    label="物料类型"
+                  >
+                    <el-select
+                      v-model="task.materialType"
+                      placeholder="请选择物料类型"
+                      style="width: 100%"
+                    >
+                      <el-option
+                        v-for="item in MATERIAL_OPTIONS"
+                        :key="item.value"
+                        :label="item.label"
+                        :value="item.value"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="8">
+                  <el-form-item
+                    :prop="`tasks.${index}.quantity`"
+                    :rules="taskRules.quantity"
+                    label="数量"
+                  >
+                    <el-input-number
+                      v-model="task.quantity"
+                      :min="1"
+                      :max="99999"
+                      :step="1"
+                      controls-position="right"
+                      style="width: 100%"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="8">
+                  <el-form-item
+                    :prop="`tasks.${index}.deadline`"
+                    :rules="taskRules.deadline"
+                    label="截止日期"
+                  >
+                    <el-date-picker
+                      v-model="task.deadline"
+                      type="date"
+                      placeholder="选择截止日期"
+                      value-format="YYYY-MM-DD"
+                      style="width: 100%"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item
+                    :prop="`tasks.${index}.specification`"
+                    label="规格说明"
+                  >
+                    <el-input v-model="task.specification" placeholder="如：60x90cm、300dpi 等" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item
+                    :prop="`tasks.${index}.usageDesc`"
+                    label="用途说明"
+                  >
+                    <el-input v-model="task.usageDesc" placeholder="如：门店开业宣传、展会展示等" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="24">
+                  <el-form-item
+                    :prop="`tasks.${index}.remark`"
+                    label="备注"
+                  >
+                    <el-input v-model="task.remark" placeholder="其他要求或说明（选填）" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </div>
+          </div>
+        </div>
+
+        <div class="add-task-row">
+          <el-button type="primary" plain :icon="Plus" @click="addTask">
+            添加物料
+          </el-button>
+        </div>
+      </el-form>
+    </div>
 
     <template #footer>
       <el-button @click="handleCancel">取消</el-button>
@@ -184,10 +183,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
-import { createOrder, updateOrder } from '@/api'
+import { Plus, Delete } from '@element-plus/icons-vue'
+import { createOrder, updateOrder, getOrderDetail } from '@/api'
 import { MATERIAL_OPTIONS } from '@/constants'
 
 // ---------- Props / Emits ----------
@@ -215,13 +214,14 @@ const isEdit = computed(() => !!props.editData && !!props.editData.id)
 // ---------- 表单 ----------
 const formRef = ref(null)
 const submitting = ref(false)
+const loading = ref(false)
 
 function createEmptyTask() {
   return {
     materialType: '',
     quantity: 1,
     specification: '',
-    purpose: '',
+    usageDesc: '',
     deadline: '',
     remark: ''
   }
@@ -229,11 +229,17 @@ function createEmptyTask() {
 
 function createEmptyForm() {
   return {
+    id: null,
+    version: null,
     customerName: '',
     contactName: '',
     contactPhone: '',
     deliveryDate: '',
     remark: '',
+    // 订单级遗留字段（后端 DTO 还校验，必须带上）
+    materialType: '',
+    quantity: 1,
+    specification: '',
     tasks: [createEmptyTask()]
   }
 }
@@ -243,8 +249,8 @@ const form = reactive(createEmptyForm())
 // ---------- 校验规则 ----------
 const rules = {
   customerName: [
-    { required: true, message: '请输入客户名称', trigger: 'blur' },
-    { max: 100, message: '客户名称不能超过 100 个字符', trigger: 'blur' }
+    { required: true, message: '请输入公司名称', trigger: 'blur' },
+    { max: 100, message: '公司名称不能超过 100 个字符', trigger: 'blur' }
   ],
   contactName: [
     { required: true, message: '请输入联系人', trigger: 'blur' },
@@ -285,24 +291,31 @@ function removeTask(index) {
   form.tasks.splice(index, 1)
 }
 
-// ---------- 监听编辑数据 ----------
-watch(
-  () => props.editData,
-  val => {
-    if (val && val.id) {
-      // 编辑模式：填充表单
-      form.customerName = val.customerName || ''
-      form.contactName = val.contactName || ''
-      form.contactPhone = val.contactPhone || ''
-      form.deliveryDate = val.deliveryDate || ''
-      form.remark = val.remark || ''
-      if (val.tasks && val.tasks.length > 0) {
-        form.tasks = val.tasks.map(t => ({
+// ---------- 加载编辑数据 ----------
+async function loadEditData(id) {
+  loading.value = true
+  try {
+    const detail = await getOrderDetail(id)
+    if (detail) {
+      form.id = detail.id
+      form.version = detail.version
+      form.customerName = detail.customerName || ''
+      form.contactName = detail.contactName || ''
+      form.contactPhone = detail.contactPhone || ''
+      form.deliveryDate = detail.deliveryDate || ''
+      form.remark = detail.remark || ''
+      // 订单级遗留字段（后端 DTO 还校验，必须带回）
+      form.materialType = detail.materialType || ''
+      form.quantity = detail.quantity || 1
+      form.specification = detail.specification || ''
+      if (detail.tasks && detail.tasks.length > 0) {
+        form.tasks = detail.tasks.map(t => ({
           id: t.id,
+          version: t.version,
           materialType: t.materialType || '',
           quantity: t.quantity || 1,
           specification: t.specification || '',
-          purpose: t.purpose || '',
+          usageDesc: t.usageDesc || '',
           deadline: t.deadline || '',
           remark: t.remark || ''
         }))
@@ -310,8 +323,38 @@ watch(
         form.tasks = [createEmptyTask()]
       }
     }
-  },
-  { immediate: true }
+  } catch (e) {
+    // 详情加载失败，使用列表数据兜底
+    const val = props.editData
+    if (val) {
+      form.id = val.id
+      form.version = val.version
+      form.customerName = val.customerName || ''
+      form.contactName = val.contactName || ''
+      form.contactPhone = val.contactPhone || ''
+      form.deliveryDate = val.deliveryDate || ''
+      form.remark = val.remark || ''
+      form.materialType = val.materialType || ''
+      form.quantity = val.quantity || 1
+      form.specification = val.specification || ''
+      form.tasks = [createEmptyTask()]
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+// 监听弹窗打开
+watch(
+  () => props.modelValue,
+  val => {
+    if (val && isEdit.value && props.editData?.id) {
+      // 编辑模式：先加载完整详情（含 tasks）
+      nextTick(() => {
+        loadEditData(props.editData.id)
+      })
+    }
+  }
 )
 
 // ---------- 提交 ----------
@@ -322,6 +365,14 @@ async function handleSubmit() {
     await formRef.value.validate()
   } catch (e) {
     return
+  }
+
+  // 同步订单级遗留字段（后端 DTO 还校验，取第一个任务的值）
+  if (form.tasks && form.tasks.length > 0) {
+    const firstTask = form.tasks[0]
+    form.materialType = firstTask.materialType || ''
+    form.quantity = firstTask.quantity || 1
+    form.specification = firstTask.specification || ''
   }
 
   submitting.value = true
@@ -349,7 +400,7 @@ function handleCancel() {
 function handleClosed() {
   // 弹窗关闭后重置表单
   if (formRef.value) {
-    formRef.value.resetFields()
+    formRef.value.clearValidate()
   }
   Object.assign(form, createEmptyForm())
 }
@@ -362,6 +413,12 @@ function handleClosed() {
 
 .order-create-dialog :deep(.el-dialog) {
   border-radius: var(--border-radius);
+}
+
+.dialog-body {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 .section-title {
@@ -383,26 +440,46 @@ function handleClosed() {
   color: var(--gray-500);
 }
 
-.task-table-wrapper {
-  border-radius: var(--border-radius-sm);
-  overflow: hidden;
+/* 物料任务卡片 */
+.task-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.task-table {
-  --el-table-header-bg-color: var(--gray-50);
-  --el-table-border-color: var(--gray-200);
+.task-card {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--border-radius);
+  background: #fff;
+  transition: var(--transition-base);
 }
 
-.table-form-item {
-  margin: 0;
-  width: 100%;
+.task-card:hover {
+  border-color: var(--primary-color);
+  box-shadow: var(--shadow-sm);
 }
 
-.table-form-item :deep(.el-form-item__content) {
-  line-height: 1;
+.task-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--gray-50);
+  border-bottom: 1px solid var(--gray-200);
+  border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+
+.task-index {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.task-card-body {
+  padding: 16px;
 }
 
 .add-task-row {
-  margin-top: 12px;
+  margin-top: 16px;
 }
 </style>

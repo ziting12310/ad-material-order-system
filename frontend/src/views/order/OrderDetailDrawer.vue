@@ -49,7 +49,7 @@
               </el-tag>
               <span v-else>—</span>
             </el-descriptions-item>
-            <el-descriptions-item label="客户名称">
+            <el-descriptions-item label="公司名称">
               {{ detail.customerName || '—' }}
             </el-descriptions-item>
             <el-descriptions-item label="联系人">
@@ -118,6 +118,11 @@
             <el-table-column label="截止日期" width="110">
               <template #default="{ row }">
                 {{ row.deadline || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="用途说明" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.usageDesc || '—' }}
               </template>
             </el-table-column>
             <el-table-column label="操作" width="80" align="center" fixed="right">

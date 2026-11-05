@@ -83,7 +83,7 @@
                   <span class="mono-text link-text" @click="viewOrderDetail(row)">{{ row.orderNo }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="customerName" label="客户名称" min-width="140" />
+              <el-table-column prop="customerName" label="公司名称" min-width="140" />
               <el-table-column label="状态" width="100" align="center">
                 <template #default="{ row }">
                   <el-tag
