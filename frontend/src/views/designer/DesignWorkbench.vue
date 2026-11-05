@@ -446,42 +446,28 @@ async function fetchStats() {
     // 通过一次列表查询统计各状态数量（简化实现）
     const designerId = userStore.userInfo?.id
 
-    if (isBL.value) {
-      // BL：统计全部订单的各状态数量
-      const [pendingRes, designingRes, waitRes, approvedRes] = await Promise.all([
-        listOrders({ status: 'CREATED', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
-      ])
-      stats.pending = pendingRes.total || 0
-      stats.designing = designingRes.total || 0
-      stats.waitApprove = waitRes.total || 0
-      stats.approved = approvedRes.total || 0
-    } else {
-      // DS：统计我的任务各状态数量
-      if (!designerId) return
-      const [assignedRes, designingRes, waitRes, approvedRes] = await Promise.all([
-        listOrders({ designerId, status: 'ASSIGNED', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ designerId, status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ designerId, status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ designerId, status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
-      ])
-      stats.assigned = assignedRes.total || 0
-      stats.designing = designingRes.total || 0
-      stats.waitApprove = waitRes.total || 0
-      stats.approved = approvedRes.total || 0
-    }
+    // BL：统计由 fetchTaskList 基于「任务实时状态」统一刷新（见 applyBlTaskStats），
+    // 避免用订单级 status 统计导致与任务列表数字不一致
+    if (isBL.value) return
+
+    // DS：统计我的任务各状态数量
+    if (!designerId) return
+    const [assignedRes, designingRes, waitRes, approvedRes] = await Promise.all([
+      listOrders({ designerId, status: 'ASSIGNED', limit: 1 }).catch(() => ({ total: 0 })),
+      listOrders({ designerId, status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
+      listOrders({ designerId, status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
+      listOrders({ designerId, status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
+    ])
+    stats.assigned = assignedRes.total || 0
+    stats.designing = designingRes.total || 0
+    stats.waitApprove = waitRes.total || 0
+    stats.approved = approvedRes.total || 0
   } catch (e) {
-    // 接口异常时使用 mock 数据
-    if (isBL.value) {
-      stats.pending = 5
-    } else {
-      stats.assigned = 3
-    }
-    stats.designing = isBL.value ? 8 : 5
-    stats.waitApprove = isBL.value ? 4 : 2
-    stats.approved = isBL.value ? 56 : 28
+    // 接口异常时使用 mock 数据（仅 DS）
+    stats.assigned = 3
+    stats.designing = 5
+    stats.waitApprove = 2
+    stats.approved = 28
   }
 }
 
@@ -505,8 +491,8 @@ const {
   handlePageChange
 } = useClientPagination(taskList)
 
-// 从订单列表中提取任务（扁平化）
-function extractTasksFromOrders(orders) {
+// 从订单列表扁平化为任务（不做筛选）
+function flattenOrders(orders) {
   const tasks = []
   orders.forEach(order => {
     if (order.tasks && order.tasks.length > 0) {
@@ -534,13 +520,24 @@ function extractTasksFromOrders(orders) {
       })
     }
   })
+  return tasks
+}
 
-  // 应用前端筛选（状态、物料类型）
+// 前端筛选（状态、物料类型均为「任务级」字段）
+function applyTaskFilters(tasks) {
   return tasks.filter(task => {
     if (filters.status && task.status !== filters.status) return false
     if (filters.materialType && task.materialType !== filters.materialType) return false
     return true
   })
+}
+
+// BL 统计：直接基于全量任务的实时状态，保证统计卡片与列表、数据库一致
+function applyBlTaskStats(tasks) {
+  stats.pending = tasks.filter(t => t.status === 'CREATED').length
+  stats.designing = tasks.filter(t => t.status === 'DESIGNING').length
+  stats.waitApprove = tasks.filter(t => t.status === 'WAIT_APPROVE').length
+  stats.approved = tasks.filter(t => t.status === 'APPROVED').length
 }
 
 /**
@@ -551,7 +548,8 @@ async function fetchTaskList() {
   loading.value = true
 
   try {
-    const allTasks = []
+    const allTasks = []      // 筛选后的任务（列表展示）
+    const allRawTasks = []   // 未筛选的全部任务（BL 统计用）
     let cursor = null
     let hasMore = true
 
@@ -568,21 +566,26 @@ async function fetchTaskList() {
 
       if (cursor) params.cursor = cursor
 
-      // 状态筛选传给后端（订单级状态筛选）
-      if (filters.status) params.status = filters.status
-      if (filters.materialType) params.materialType = filters.materialType
+      // 注意：status / materialType 是「任务级」筛选，必须在前端按 task 字段过滤。
+      // 若下发给后端，会被 applyOrderFilters 当成「订单级」过滤，
+      // 导致订单状态未同步时漏掉仍有待分派任务的订单（出现“任务已分派却显示待分派/无法分派”）。
+      // 前端过滤见 applyTaskFilters。
 
       const res = await listOrders(params)
-      allTasks.push(...extractTasksFromOrders(res.list || []))
+      const batch = flattenOrders(res.list || [])
+      allRawTasks.push(...batch)
+      allTasks.push(...applyTaskFilters(batch))
 
       cursor = res.nextCursor || null
       hasMore = !!res.hasMore && !!cursor
     }
 
     taskList.value = allTasks
+    if (isBL.value) applyBlTaskStats(allRawTasks)
     resetTaskPage()   // 数据刷新后回到第一页
   } catch (e) {
     taskList.value = []
+    if (isBL.value) applyBlTaskStats([])
     resetTaskPage()
   } finally {
     loading.value = false
@@ -746,6 +749,7 @@ const assignDialog = reactive({
   loading: false,
   row: null,
   tasks: [],          // 打开弹窗时从订单详情缓存的完整任务列表（含乐观锁 version）
+  task: null,         // 当前行对应的那一条任务（任务级分派只提交这一条）
   orderVersion: null  // 订单本体乐观锁（无任务订单走订单级分派时使用）
 })
 const assignFormRef = ref(null)
@@ -778,17 +782,26 @@ async function handleAssign(row) {
   assignForm.designerId = null
   assignForm.remark = ''
   assignDialog.tasks = []
+  assignDialog.task = null
   assignDialog.orderVersion = null
   assignDialog.loading = true
   try {
-    // 打开弹窗前拉订单详情，缓存完整任务列表（含乐观锁 version）
-    const detail = await getOrderDetail(row.orderId || row.id)
+    const orderId = row.orderId || row.id
+    // 打开弹窗前拉订单详情，取该任务的最新状态与乐观锁 version
+    const detail = await getOrderDetail(orderId)
     if (detail?.version == null) {
       ElMessage.error('订单详情未返回乐观锁 version，无法分派，请检查后端 OrderDetailVO')
       return
     }
     assignDialog.orderVersion = detail.version
-    assignDialog.tasks = detail.tasks || []
+    const detailTasks = detail.tasks || []
+    assignDialog.tasks = detailTasks
+
+    // 只锁定「当前这一行」的任务，避免把订单内已分派的任务一起提交，
+    // 也避免因其他任务已分派而被整体拦截
+    const matched = detailTasks.find(t => String(t.id) === String(row.id))
+    assignDialog.task =
+      matched && (!row.taskNo || matched.taskNo === row.taskNo) ? matched : null
   } catch (e) {
     ElMessage.error('加载订单详情失败，请重试')
     return
@@ -803,30 +816,38 @@ async function handleAssign(row) {
 
 // 任务流程已结束的状态（已定稿 / 已驳回 / 已交付 / 已作废）
 const TASK_CLOSED_STATUS = ['APPROVED', 'REJECTED', 'DELIVERED', 'CANCELLED']
+// 已分派/进行中的状态（已存在设计师负责人，不可再次分派）
+const TASK_HANDLED_STATUS = ['ASSIGNED', 'DESIGNING', 'WAIT_APPROVE']
 
 /**
- * 分派提交前置校验：依次判断，命中返回提示文案（不命中返回 null）
- * ① 已分派（已有设计师负责人） ② 流程已结束 ③ 任务数据异常（不存在/不属于当前订单）
+ * 分派前置校验（只针对当前行这一条任务）：
+ * ① 已分派 ② 流程已结束 ③ 任务数据异常（不存在 / 不属于当前订单）
+ * 命中返回提示文案，全部通过返回 null
  */
-function getAssignBlockMessage(tasks, orderId, row) {
-  // ③ 数据异常：行数据或订单ID缺失
+function getAssignBlockMessage(task, orderId, row) {
   if (!row || !orderId) return '任务数据异常，无法分派'
 
-  // ① 已分派：任务已有设计师负责人
-  if (tasks.some(t => t.designerId != null)) {
+  // 任务级：校验当前这一条任务
+  if (task) {
+    if (task.orderId != null && String(task.orderId) !== String(orderId)) {
+      return '任务数据异常，无法分派'
+    }
+    if (task.designerId != null || TASK_HANDLED_STATUS.includes(task.status)) {
+      return '当前任务状态为【已分派】，按已有状态不可分派'
+    }
+    if (TASK_CLOSED_STATUS.includes(task.status)) {
+      return '该任务流程已结束，不可重新分派'
+    }
+    if (task.status !== 'CREATED') {
+      return '当前任务状态不可分派'
+    }
+    return null
+  }
+
+  // 订单级兜底：订单下没有任务记录，按订单状态判断
+  if (row.designerId != null || row.status !== 'CREATED') {
     return '当前任务状态为【已分派】，按已有状态不可分派'
   }
-
-  // ② 流程已结束：已定稿 / 已驳回等闭环状态
-  if (tasks.some(t => TASK_CLOSED_STATUS.includes(t.status))) {
-    return '该任务流程已结束，不可重新分派'
-  }
-
-  // ③ 数据异常：任务不属于当前订单
-  if (tasks.some(t => t.orderId != null && String(t.orderId) !== String(orderId))) {
-    return '任务数据异常，无法分派'
-  }
-
   return null
 }
 
@@ -836,39 +857,40 @@ async function handleAssignSubmit() {
     if (!valid) return
 
     const row = assignDialog.row
+    const task = assignDialog.task
     const tasks = assignDialog.tasks || []
     const orderId = row?.orderId || row?.id
 
-    // 分派前置校验：命中即弹窗提示并阻止提交（后端同规则二次校验）
-    const blockMessage = getAssignBlockMessage(tasks, orderId, row)
+    // 分派前置校验：命中即提示并阻止提交（后端同规则二次校验）
+    const blockMessage = getAssignBlockMessage(task, orderId, row)
     if (blockMessage) {
       ElMessage.warning(blockMessage)
       return
     }
 
-    // 提交前校验乐观锁 version 已随弹窗缓存
-    if (tasks.length > 0) {
-      const missing = tasks.find(t => t.version == null)
-      if (missing) {
-        ElMessage.error(`任务 ${missing.taskNo || missing.id} 缺少乐观锁 version，请刷新后重试`)
-        return
-      }
-    } else if (assignDialog.orderVersion == null) {
+    if (task && task.version == null) {
+      ElMessage.error(`任务 ${task.taskNo || task.id} 缺少乐观锁 version，请刷新后重试`)
+      return
+    }
+    // 当前行有任务但详情里查不到该任务 → 数据异常
+    if (!task && tasks.length > 0) {
+      ElMessage.warning('任务数据异常，无法分派')
+      return
+    }
+    if (!task && assignDialog.orderVersion == null) {
       ElMessage.error('订单缺少乐观锁 version，请刷新后重试')
       return
     }
 
     assignDialog.loading = true
     try {
-      if (tasks.length > 0) {
-        // 任务级分派：逐个分派，每个任务带自己的乐观锁 version
-        await Promise.all(tasks.map(t =>
-          assignTask(orderId, t.id, {
-            designerId: assignForm.designerId,
-            assignRemark: assignForm.remark,
-            version: t.version
-          })
-        ))
+      if (task) {
+        // 任务级分派：只提交当前行这一条任务，带任务自身乐观锁 version
+        await assignTask(orderId, task.id, {
+          designerId: assignForm.designerId,
+          assignRemark: assignForm.remark,
+          version: task.version
+        })
       } else {
         // 无任务订单：走订单级分派接口，携带订单乐观锁 version
         await assignOrder(orderId, {

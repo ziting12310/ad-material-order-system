@@ -135,50 +135,6 @@
           </el-table>
         </el-tab-pane>
 
-        <!-- 参考文件 -->
-        <el-tab-pane label="参考文件" name="files">
-          <el-table
-            :data="detail.referenceFiles || []"
-            border
-            size="default"
-            class="file-table"
-          >
-            <el-table-column label="文件名" min-width="200">
-              <template #default="{ row }">
-                <el-icon class="file-icon"><Document /></el-icon>
-                <span class="file-name">{{ row.fileName || row.name || '—' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="大小" width="100" align="right">
-              <template #default="{ row }">
-                {{ formatFileSize(row.fileSize || row.size) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="上传时间" width="160">
-              <template #default="{ row }">
-                {{ formatDateTime(row.uploadedAt || row.createdAt) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="80" align="center" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  type="primary"
-                  link
-                  size="small"
-                  @click="downloadFile(row)"
-                >
-                  下载
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty
-            v-if="!detail.referenceFiles || detail.referenceFiles.length === 0"
-            description="暂无参考文件"
-            :image-size="80"
-          />
-        </el-tab-pane>
-
         <!-- 设计版本 -->
         <el-tab-pane label="设计版本" name="versions">
           <el-table
@@ -360,7 +316,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, EditPen } from '@element-plus/icons-vue'
+import { EditPen } from '@element-plus/icons-vue'
 import { getOrderDetail, submitFeedback, listFeedbacks } from '@/api'
 import { useUserStore } from '@/stores/user'
 import {
@@ -504,14 +460,6 @@ function formatDateTime(iso) {
   )
 }
 
-function formatFileSize(bytes) {
-  if (!bytes || bytes <= 0) return '—'
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
-  return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB'
-}
-
 // ---------- 数据加载 ----------
 async function fetchDetail() {
   if (!props.orderId) return
@@ -548,14 +496,6 @@ function handleOpen() {
 // ---------- 操作 ----------
 function viewTask(row) {
   ElMessage.info(`查看任务：${row.taskNo || row.id}`)
-}
-
-function downloadFile(row) {
-  if (row.fileUrl || row.url) {
-    window.open(row.fileUrl || row.url, '_blank')
-  } else {
-    ElMessage.info('文件下载功能开发中')
-  }
 }
 
 function previewVersion(row) {
@@ -707,21 +647,10 @@ async function handleSubmitFeedback() {
 }
 
 .task-table,
-.file-table,
 .version-table {
   margin-top: 12px;
   --el-table-header-bg-color: var(--gray-50);
   --el-table-border-color: var(--gray-200);
-}
-
-.file-icon {
-  margin-right: 6px;
-  color: var(--primary-color);
-  vertical-align: -2px;
-}
-
-.file-name {
-  color: var(--gray-800);
 }
 
 .version-tag {
