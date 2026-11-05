@@ -1,5 +1,6 @@
 package com.peak.exception;
 
+import com.peak.common.constants.BusinessErrorCode;
 import com.peak.common.constants.ErrorCode;
 import com.peak.vo.ResultVO;
 import jakarta.validation.ConstraintViolationException;
@@ -43,7 +44,7 @@ import java.util.stream.Collectors;
  * 参数校验失败                  400   PARAM_VALIDATION_ERROR
  * 缺少必填参数                  400   MISSING_REQUIRED_FIELD
  * 上传文件超限                  413   FILE_TOO_LARGE
- * 状态机冲突                    422   ORDER_STATUS_CONFLICT
+ * 状态机冲突                    422   ORDER_STATUS_CONFLICT / ORDER_STATUS_ILLEGAL_TRANSITION
  * 系统异常                      500   INTERNAL_ERROR
  * </pre>
  *
@@ -84,6 +85,7 @@ public class GlobalExceptionHandler {
             // 422
             Map.entry(ErrorCode.ORDER_STATUS_CONFLICT, HttpStatus.UNPROCESSABLE_ENTITY),
             Map.entry(ErrorCode.DESIGNER_ROLE_INVALID, HttpStatus.UNPROCESSABLE_ENTITY),
+            Map.entry(BusinessErrorCode.ORDER_STATUS_ILLEGAL_TRANSITION.getCode(), HttpStatus.UNPROCESSABLE_ENTITY),
             // 500
             Map.entry(ErrorCode.BUSINESS_ERROR, HttpStatus.INTERNAL_SERVER_ERROR),
             Map.entry(ErrorCode.INTERNAL_ERROR, HttpStatus.INTERNAL_SERVER_ERROR)
