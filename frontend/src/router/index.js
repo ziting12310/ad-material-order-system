@@ -6,7 +6,10 @@
  *  /                       → 重定向 /dashboard
  *  /dashboard              → 工作台
  *  /orders                 → 订单列表
- *  /final-audit            → 定稿审核归档
+ *  /design-workbench       → 设计师工作台
+ *  /final-audit            → 定稿审核
+ *  /archive                → 归档查询
+ *  /profile                → 个人中心
  */
 import { createRouter, createWebHistory } from 'vue-router'
 import Layout from '@/components/layout/Layout.vue'
@@ -35,13 +38,31 @@ const routes = [
         path: 'orders',
         name: 'OrderList',
         component: () => import('@/views/order/OrderList.vue'),
-        meta: { title: '订单管理', icon: 'Document' }
+        meta: { title: '订单管理', icon: 'Document', roles: ['AM', 'BL'] }
+      },
+      {
+        path: 'design-workbench',
+        name: 'DesignWorkbench',
+        component: () => import('@/views/designer/DesignWorkbench.vue'),
+        meta: { title: '设计师工作台', icon: 'Brush', roles: ['DS', 'BL'] }
       },
       {
         path: 'final-audit',
         name: 'FinalAudit',
         component: () => import('@/views/audit/FinalAudit.vue'),
-        meta: { title: '定稿审核归档', icon: 'CircleCheck' }
+        meta: { title: '定稿审核', icon: 'CircleCheck', roles: ['AM', 'BL'] }
+      },
+      {
+        path: 'archive',
+        name: 'ArchiveList',
+        component: () => import('@/views/archive/ArchiveList.vue'),
+        meta: { title: '归档查询', icon: 'FolderChecked' }
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('@/views/Profile.vue'),
+        meta: { title: '个人中心', hidden: true }
       }
     ]
   },
@@ -57,26 +78,31 @@ const router = createRouter({
 // 白名单：不需要登录的页面
 const WHITE_LIST = ['/login']
 
-// ========== 前置守卫：登录校验 ==========
+// ========== 前置守卫：登录校验 + 角色权限 ==========
 router.beforeEach(async (to, from, next) => {
   const token = getToken()
 
   // 已登录
   if (token) {
     if (to.path === '/login') {
-      // 已登录的人访问登录页，直接跳首页
       next('/dashboard')
       return
     }
-    // 确保用户信息已加载（刷新页面时 token 有但 pinia 里 userInfo 可能还没）
+    // 确保用户信息已加载
     const userStore = useUserStore()
     if (!userStore.userInfo) {
       try {
         await userStore.fetchUserInfo()
       } catch (e) {
-        // Token 无效，清掉跳登录
         userStore.logout()
         next(`/login?redirect=${to.fullPath}`)
+        return
+      }
+    }
+    // 角色权限校验
+    if (to.meta.roles && to.meta.roles.length) {
+      if (!to.meta.roles.includes(userStore.userInfo.role)) {
+        next('/dashboard')
         return
       }
     }

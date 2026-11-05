@@ -1,27 +1,22 @@
 <template>
-  <!--
-    订单管理列表页
-    功能：筛选 + 表格 + 分页 + 查看详情
-  -->
-  <div class="order-list">
-    <!-- 筛选表单 -->
+  <div class="order-list-page">
+    <!-- 顶部栏 -->
+    <div class="page-header">
+      <h2 class="page-title">订单管理</h2>
+      <el-button type="primary" :icon="Plus" @click="handleCreate">
+        新建订单
+      </el-button>
+    </div>
+
+    <!-- 筛选卡片 -->
     <el-card class="filter-card" shadow="never">
-      <el-form :model="filters" inline label-width="80px" @submit.prevent>
-        <el-form-item label="订单编号">
+      <el-form :model="filters" inline label-width="72px" @submit.prevent>
+        <el-form-item label="关键字">
           <el-input
-            v-model="filters.orderNo"
-            placeholder="请输入订单编号"
+            v-model="filters.keyword"
+            placeholder="订单号/客户名称"
             clearable
-            style="width: 200px"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="客户名称">
-          <el-input
-            v-model="filters.customerName"
-            placeholder="请输入客户名称"
-            clearable
-            style="width: 200px"
+            style="width: 220px"
             @keyup.enter="handleSearch"
           />
         </el-form-item>
@@ -30,19 +25,34 @@
             v-model="filters.materialType"
             placeholder="全部类型"
             clearable
-            style="width: 160px"
+            style="width: 140px"
           >
             <el-option
-              v-for="item in materialOptions"
+              v-for="item in MATERIAL_OPTIONS"
               :key="item.value"
               :label="item.label"
               :value="item.value"
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="创建时间">
+        <el-form-item label="状态">
+          <el-select
+            v-model="filters.status"
+            placeholder="全部状态"
+            clearable
+            style="width: 140px"
+          >
+            <el-option
+              v-for="item in ORDER_STATUS_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="交付日期">
           <el-date-picker
-            v-model="filters.dateRange"
+            v-model="filters.deliveryDateRange"
             type="daterange"
             range-separator="至"
             start-placeholder="开始日期"
@@ -52,40 +62,53 @@
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :icon="Search" @click="handleSearch">搜索</el-button>
+          <el-button type="primary" :icon="Search" @click="handleSearch">
+            搜索
+          </el-button>
           <el-button :icon="RefreshLeft" @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
     </el-card>
 
-    <!-- 表格 -->
+    <!-- 表格卡片 -->
     <el-card class="table-card" shadow="never">
       <el-table
         v-loading="loading"
         :data="tableData"
-        stripe
         border
         style="width: 100%"
-        :header-cell-style="{ background: '#f8fafc', color: '#475569', fontWeight: 500 }"
+        :header-cell-style="headerCellStyle"
       >
-        <el-table-column prop="id" label="ID" width="70" align="center" />
-        <el-table-column prop="orderNo" label="订单编号" width="160">
+        <el-table-column prop="orderNo" label="订单号" width="170">
           <template #default="{ row }">
-            <span class="order-no">{{ row.orderNo }}</span>
+            <span class="order-no-text">{{ row.orderNo }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="customerName" label="客户名称" min-width="140" />
-        <el-table-column prop="contactName" label="联系人" width="110" />
-        <el-table-column prop="materialType" label="物料类型" width="110">
+        <el-table-column label="物料" width="120" align="center">
           <template #default="{ row }">
-            {{ getMaterialLabel(row.materialType) }}
+            <span class="material-count">{{ (row.tasks && row.tasks.length) || row.taskCount || 0 }} 项物料</span>
           </template>
         </el-table-column>
-        <el-table-column prop="quantity" label="数量" width="90" align="right" />
-        <el-table-column prop="status" label="状态" width="100" align="center">
+        <el-table-column label="任务进度" width="140" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" effect="light" round size="small">
-              {{ getStatusLabel(row.status) }}
+            <span class="task-progress">
+              <span class="progress-done">{{ getApprovedCount(row) }}</span>
+              <span class="progress-sep">/</span>
+              <span class="progress-total">{{ getTotalCount(row) }}</span>
+              <span class="progress-label">已定稿</span>
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag
+              :type="getOrderStatusType(row.status)"
+              effect="light"
+              round
+              size="small"
+            >
+              {{ getOrderStatusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -95,251 +118,339 @@
             {{ formatDateTime(row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right" align="center">
+        <el-table-column label="操作" width="180" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="viewDetail(row)">
-              查看详情
+            <el-button type="primary" link size="small" @click="handleView(row)">
+              查看
+            </el-button>
+            <el-button
+              v-if="row.status === 'CREATED'"
+              type="primary"
+              link
+              size="small"
+              @click="handleEdit(row)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              v-if="row.status === 'CREATED'"
+              type="danger"
+              link
+              size="small"
+              @click="handleDelete(row)"
+            >
+              删除
             </el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <!-- 分页 -->
-      <div class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
-          background
-          @size-change="handleSizeChange"
-          @current-change="handlePageChange"
+      <!-- 加载更多 -->
+      <div class="load-more-wrap">
+        <el-button
+          v-if="hasMore"
+          type="primary"
+          plain
+          :loading="loadingMore"
+          :disabled="loadingMore"
+          @click="loadMore"
+        >
+          {{ loadingMore ? '加载中...' : '加载更多' }}
+        </el-button>
+        <div v-else-if="tableData.length > 0" class="no-more">
+          没有更多了
+        </div>
+        <el-empty
+          v-else-if="!loading"
+          description="暂无订单数据"
+          :image-size="100"
         />
       </div>
     </el-card>
 
-    <!-- 详情弹窗 -->
-    <el-dialog
-      v-model="detailVisible"
-      title="订单详情"
-      width="700px"
-      :close-on-click-modal="false"
-    >
-      <div v-loading="detailLoading" class="detail-content">
-        <el-descriptions :column="2" border size="default">
-          <el-descriptions-item label="订单编号">
-            <span class="mono-text">{{ detail.orderNo }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="客户名称">
-            {{ detail.customerName }}
-          </el-descriptions-item>
-          <el-descriptions-item label="联系人">
-            {{ detail.contactName }}
-          </el-descriptions-item>
-          <el-descriptions-item label="联系电话">
-            {{ detail.contactPhone }}
-          </el-descriptions-item>
-          <el-descriptions-item label="物料类型">
-            {{ getMaterialLabel(detail.materialType) }}
-          </el-descriptions-item>
-          <el-descriptions-item label="数量">
-            {{ detail.quantity }}
-          </el-descriptions-item>
-          <el-descriptions-item label="规格说明" :span="2">
-            {{ detail.specification || '—' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="交付日期">
-            {{ detail.deliveryDate || '—' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="订单状态">
-            <el-tag :type="statusTagType(detail.status)" effect="light" round size="small">
-              {{ getStatusLabel(detail.status) }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="备注" :span="2">
-            {{ detail.remark || '—' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="创建时间" :span="2">
-            {{ formatDateTime(detail.createdAt) }}
-          </el-descriptions-item>
-        </el-descriptions>
-      </div>
-      <template #footer>
-        <el-button @click="detailVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
+    <!-- 创建/编辑弹窗 -->
+    <OrderCreateDialog
+      v-model="createDialogVisible"
+      :edit-data="currentEditRow"
+      @success="handleCreateSuccess"
+    />
+
+    <!-- 详情抽屉 -->
+    <OrderDetailDrawer
+      v-model="detailDrawerVisible"
+      :order-id="currentViewId"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import { Search, RefreshLeft } from '@element-plus/icons-vue'
-import { listOrders, getOrderDetail } from '@/api/order'
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Search, RefreshLeft } from '@element-plus/icons-vue'
+import { listOrders, deleteOrder } from '@/api'
+import {
+  MATERIAL_OPTIONS,
+  ORDER_STATUS_OPTIONS,
+  getOrderStatusLabel,
+  getOrderStatusType
+} from '@/constants'
+import OrderCreateDialog from './OrderCreateDialog.vue'
+import OrderDetailDrawer from './OrderDetailDrawer.vue'
 
-// ---------- 枚举常量 ----------
-const materialOptions = [
-  { value: 'POSTER', label: '海报' },
-  { value: 'FLYER', label: '宣传单' },
-  { value: 'BUSINESS_CARD', label: '名片' },
-  { value: 'BROCHURE', label: '画册' },
-  { value: 'BANNER', label: '喷绘' },
-  { value: 'OTHER', label: '其他' }
-]
-
-const STATUS_MAP = {
-  CREATED:      { label: '待分派', type: 'info' },
-  ASSIGNED:     { label: '已分派', type: 'primary' },
-  DESIGNING:    { label: '设计中', type: 'warning' },
-  WAIT_APPROVE: { label: '待定稿', type: 'warning' },
-  APPROVED:     { label: '已定稿', type: 'success' },
-  DELIVERED:    { label: '已交付', type: 'success' },
-  CANCELLED:    { label: '已作废', type: 'info' }
+// ---------- 常量 ----------
+const PAGE_SIZE = 20
+const headerCellStyle = {
+  background: 'var(--gray-50)',
+  color: 'var(--gray-600)',
+  fontWeight: 500
 }
-
-const getMaterialLabel = v => {
-  const m = materialOptions.find(item => item.value === v)
-  return m ? m.label : v
-}
-const getStatusLabel = s => (STATUS_MAP[s] ? STATUS_MAP[s].label : s)
-const statusTagType = s => (STATUS_MAP[s] ? STATUS_MAP[s].type : 'info')
 
 // ---------- 筛选 ----------
 const filters = reactive({
-  orderNo: '',
-  customerName: '',
+  keyword: '',
   materialType: '',
-  dateRange: []
+  status: '',
+  deliveryDateRange: []
 })
 
-// ---------- 表格 & 分页 ----------
+// ---------- 表格 & 游标分页 ----------
 const loading = ref(false)
+const loadingMore = ref(false)
 const tableData = ref([])
-const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-  total: 0
-})
+const nextCursor = ref(null)
+const hasMore = ref(true)
 
-// ---------- 详情 ----------
-const detailVisible = ref(false)
-const detailLoading = ref(false)
-const detail = ref({})
+// ---------- 弹窗 / 抽屉 ----------
+const createDialogVisible = ref(false)
+const currentEditRow = ref(null)
+const detailDrawerVisible = ref(false)
+const currentViewId = ref(null)
 
-// ---------- 数据加载 ----------
-async function fetchList() {
-  loading.value = true
-  try {
-    const params = {
-      page: pagination.page,
-      limit: pagination.pageSize
-    }
-    if (filters.orderNo) params.orderNo = filters.orderNo
-    if (filters.customerName) params.customerName = filters.customerName
-    if (filters.materialType) params.materialType = filters.materialType
-    if (filters.dateRange && filters.dateRange.length === 2) {
-      params.startDate = filters.dateRange[0]
-      params.endDate = filters.dateRange[1]
-    }
-
-    const res = await listOrders(params)
-    tableData.value = res.list || []
-    pagination.total = res.total || 0
-  } catch (e) {
-    // 接口不通时用 mock 数据
-    generateMockData()
-  } finally {
-    loading.value = false
-  }
-}
-
-// 模拟数据
-function generateMockData() {
-  const statuses = ['CREATED', 'ASSIGNED', 'DESIGNING', 'WAIT_APPROVE', 'APPROVED']
-  const customers = ['可口可乐', '宝洁中国', '华为技术', '小米科技', '阿里巴巴', '腾讯科技', '京东集团', '美团']
-  const materials = ['POSTER', 'FLYER', 'BUSINESS_CARD', 'BROCHURE', 'BANNER']
-  const list = []
-  for (let i = 1; i <= pagination.pageSize; i++) {
-    const idx = (pagination.page - 1) * pagination.pageSize + i
-    list.push({
-      id: idx,
-      orderNo: 'ORD-2026-' + String(idx).padStart(5, '0'),
-      customerName: customers[idx % customers.length],
-      contactName: ['张三', '李四', '王五', '赵六'][idx % 4],
-      contactPhone: '138' + String(10000000 + idx).slice(-8),
-      materialType: materials[idx % materials.length],
-      quantity: 100 + idx * 50,
-      specification: 'A3尺寸 双面印刷 300g铜版纸',
-      status: statuses[idx % statuses.length],
-      deliveryDate: '2026-11-15',
-      createdAt: '2026-11-0' + ((idx % 9) + 1) + ' 10:' + String((idx * 3) % 60).padStart(2, '0') + ':00',
-      remark: '加急处理，注意颜色校准'
-    })
-  }
-  tableData.value = list
-  pagination.total = 86
-}
-
-function handleSearch() {
-  pagination.page = 1
-  fetchList()
-}
-
-function handleReset() {
-  filters.orderNo = ''
-  filters.customerName = ''
-  filters.materialType = ''
-  filters.dateRange = []
-  pagination.page = 1
-  fetchList()
-}
-
-function handlePageChange(page) {
-  pagination.page = page
-  fetchList()
-}
-
-function handleSizeChange(size) {
-  pagination.pageSize = size
-  pagination.page = 1
-  fetchList()
-}
-
-// ---------- 详情 ----------
-async function viewDetail(row) {
-  detailVisible.value = true
-  detailLoading.value = true
-  try {
-    const res = await getOrderDetail(row.id)
-    detail.value = res || {}
-  } catch (e) {
-    detail.value = row
-  } finally {
-    detailLoading.value = false
-  }
-}
-
-// ---------- 工具 ----------
+// ---------- 工具函数 ----------
 function formatDateTime(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
   const pad = n => String(n).padStart(2, '0')
-  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+  return (
+    d.getFullYear() +
+    '-' + pad(d.getMonth() + 1) +
+    '-' + pad(d.getDate()) +
+    ' ' + pad(d.getHours()) +
+    ':' + pad(d.getMinutes())
+  )
 }
 
-onMounted(fetchList)
+function getTotalCount(row) {
+  if (row.taskCount != null) return row.taskCount
+  if (row.tasks && row.tasks.length) return row.tasks.length
+  return 0
+}
+
+function getApprovedCount(row) {
+  if (row.approvedTaskCount != null) return row.approvedTaskCount
+  if (row.tasks && row.tasks.length) {
+    return row.tasks.filter(t => t.status === 'APPROVED').length
+  }
+  return 0
+}
+
+// ---------- 数据加载（游标分页） ----------
+async function fetchList(isLoadMore = false) {
+  if (isLoadMore) {
+    if (!hasMore.value || loadingMore.value) return
+    loadingMore.value = true
+  } else {
+    loading.value = true
+  }
+
+  try {
+    const params = {
+      limit: PAGE_SIZE
+    }
+
+    // 游标
+    if (isLoadMore && nextCursor.value) {
+      params.cursor = nextCursor.value
+    }
+
+    // 筛选条件
+    if (filters.keyword) params.keyword = filters.keyword
+    if (filters.materialType) params.materialType = filters.materialType
+    if (filters.status) params.status = filters.status
+    if (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) {
+      params.deliveryDateFrom = filters.deliveryDateRange[0]
+      params.deliveryDateTo = filters.deliveryDateRange[1]
+    }
+
+    const res = await listOrders(params)
+
+    if (isLoadMore) {
+      // 追加模式
+      if (res.list && res.list.length > 0) {
+        tableData.value = [...tableData.value, ...res.list]
+      }
+    } else {
+      // 重置
+      tableData.value = res.list || []
+    }
+
+    nextCursor.value = res.nextCursor || null
+    hasMore.value = !!res.hasMore
+  } catch (e) {
+    // 错误已由拦截器统一处理
+    if (!isLoadMore) {
+      tableData.value = []
+    }
+    hasMore.value = false
+  } finally {
+    if (isLoadMore) {
+      loadingMore.value = false
+    } else {
+      loading.value = false
+    }
+  }
+}
+
+function loadMore() {
+  fetchList(true)
+}
+
+// ---------- 上拉加载 ----------
+let scrollContainer = null
+
+function handleScroll() {
+  if (!scrollContainer) return
+  const { scrollTop, scrollHeight, clientHeight } = scrollContainer
+  // 距离底部 100px 时触发加载更多
+  if (scrollHeight - scrollTop - clientHeight < 100) {
+    if (hasMore.value && !loadingMore.value && !loading.value) {
+      loadMore()
+    }
+  }
+}
+
+function setupScrollListener() {
+  // 查找内容区域滚动容器
+  scrollContainer = document.querySelector('.main-content') ||
+                    document.querySelector('.app-main') ||
+                    document.querySelector('.layout-content')
+  if (scrollContainer) {
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true })
+  }
+}
+
+function removeScrollListener() {
+  if (scrollContainer) {
+    scrollContainer.removeEventListener('scroll', handleScroll)
+    scrollContainer = null
+  }
+}
+
+// ---------- 搜索 / 重置 ----------
+function handleSearch() {
+  nextCursor.value = null
+  hasMore.value = true
+  fetchList(false)
+}
+
+function handleReset() {
+  filters.keyword = ''
+  filters.materialType = ''
+  filters.status = ''
+  filters.deliveryDateRange = []
+  nextCursor.value = null
+  hasMore.value = true
+  fetchList(false)
+}
+
+// ---------- 操作 ----------
+function handleCreate() {
+  currentEditRow.value = null
+  createDialogVisible.value = true
+}
+
+function handleEdit(row) {
+  currentEditRow.value = row
+  createDialogVisible.value = true
+}
+
+function handleView(row) {
+  currentViewId.value = row.id
+  detailDrawerVisible.value = true
+}
+
+async function handleDelete(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除订单 ${row.orderNo} 吗？`,
+      '删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (e) {
+    return
+  }
+
+  try {
+    await deleteOrder(row.id)
+    ElMessage.success('删除成功')
+    // 重新加载列表
+    nextCursor.value = null
+    hasMore.value = true
+    fetchList(false)
+  } catch (e) {
+    // 错误已由拦截器处理
+  }
+}
+
+function handleCreateSuccess() {
+  // 创建/编辑成功后刷新列表
+  nextCursor.value = null
+  hasMore.value = true
+  fetchList(false)
+}
+
+// ---------- 生命周期 ----------
+onMounted(() => {
+  fetchList(false)
+  // 延迟绑定滚动监听，确保 DOM 已渲染
+  setTimeout(setupScrollListener, 100)
+})
+
+onBeforeUnmount(() => {
+  removeScrollListener()
+})
 </script>
 
 <style scoped>
-.order-list {
+.order-list-page {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--gray-900);
 }
 
 .filter-card {
   border-radius: var(--border-radius);
 }
+
 .filter-card :deep(.el-card__body) {
   padding: 20px 24px 4px;
 }
@@ -347,29 +458,62 @@ onMounted(fetchList)
 .table-card {
   border-radius: var(--border-radius);
 }
+
 .table-card :deep(.el-card__body) {
   padding: 0;
 }
 
-.order-no {
+.order-no-text {
   font-family: 'SF Mono', Monaco, monospace;
   color: var(--primary-color);
   font-size: 13px;
+  font-weight: 500;
 }
 
-.mono-text {
-  font-family: 'SF Mono', Monaco, monospace;
-  color: var(--primary-color);
+.material-count {
+  font-size: 13px;
+  color: var(--gray-700);
 }
 
-.pagination-wrap {
+.task-progress {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.progress-done {
+  font-weight: 600;
+  color: var(--success-color);
+  font-size: 14px;
+}
+
+.progress-sep {
+  color: var(--gray-400);
+}
+
+.progress-total {
+  font-weight: 500;
+  color: var(--gray-700);
+}
+
+.progress-label {
+  margin-left: 4px;
+  color: var(--gray-500);
+  font-size: 12px;
+}
+
+.load-more-wrap {
   display: flex;
-  justify-content: flex-end;
-  padding: 16px 20px;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
   border-top: 1px solid var(--gray-100);
+  min-height: 60px;
 }
 
-.detail-content {
-  padding: 8px 0;
+.no-more {
+  font-size: 13px;
+  color: var(--gray-400);
 }
 </style>

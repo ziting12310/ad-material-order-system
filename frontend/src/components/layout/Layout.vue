@@ -50,10 +50,10 @@
           </el-tooltip>
           <el-dropdown trigger="click" @command="handleCommand">
             <div class="user-info">
-              <el-avatar :size="32" style="background: #2563eb">
-                {{ userStore.userInfo.name?.charAt(0) }}
+              <el-avatar :size="32" style="background: var(--primary-color)">
+                {{ userStore.userInfo?.name?.charAt(0) }}
               </el-avatar>
-              <span class="user-name">{{ userStore.userInfo.name }}</span>
+              <span class="user-name">{{ userStore.userInfo?.name }}</span>
               <el-icon><CaretBottom /></el-icon>
             </div>
             <template #dropdown>
@@ -61,7 +61,7 @@
                 <el-dropdown-item command="profile">
                   <el-icon><User /></el-icon>个人中心
                 </el-dropdown-item>
-                <el-dropdown-item command="logout" divided>
+                <el-dropdown-item divided command="logout">
                   <el-icon><SwitchButton /></el-icon>退出登录
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -84,21 +84,31 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 
 const sidebarWidth = 'var(--sidebar-width)'
 
-// 菜单配置
-const menuList = [
+// 完整菜单配置（roles 控制可见性）
+const allMenus = [
   { path: '/dashboard', title: '工作台', icon: 'Odometer' },
-  { path: '/orders', title: '订单管理', icon: 'Document' },
-  { path: '/final-audit', title: '定稿审核归档', icon: 'CircleCheck' }
+  { path: '/orders', title: '订单管理', icon: 'Document', roles: ['AM', 'BL'] },
+  { path: '/design-workbench', title: '设计师工作台', icon: 'Brush', roles: ['DS', 'BL'] },
+  { path: '/final-audit', title: '定稿审核', icon: 'CircleCheck', roles: ['AM', 'BL'] },
+  { path: '/archive', title: '归档查询', icon: 'FolderChecked' }
 ]
+
+// 按角色过滤菜单
+const menuList = computed(() => {
+  const role = userStore.userInfo?.role
+  if (!role) return allMenus.filter(m => !m.roles)
+  return allMenus.filter(m => !m.roles || m.roles.includes(role))
+})
 
 // 当前激活菜单
 const activeMenu = computed(() => {
@@ -113,25 +123,20 @@ const breadcrumbs = computed(() => {
   return [title]
 })
 
-// 下拉菜单点击
-function handleCommand(command) {
-  if (command === 'profile') {
-    ElMessage.info('个人中心功能开发中')
-  } else if (command === 'logout') {
+// 下拉菜单操作
+function handleCommand(cmd) {
+  if (cmd === 'profile') {
+    router.push('/profile')
+  } else if (cmd === 'logout') {
     ElMessageBox.confirm('确定要退出登录吗？', '提示', {
       confirmButtonText: '确定退出',
       cancelButtonText: '取消',
       type: 'warning'
-    })
-      .then(() => {
-        userStore.logout()
-        ElMessage.success('已退出登录')
-        // 课程演示：刷新一下重置
-        setTimeout(() => {
-          window.location.reload()
-        }, 500)
-      })
-      .catch(() => {})
+    }).then(() => {
+      userStore.logout()
+      ElMessage.success('已退出登录')
+      router.push('/login')
+    }).catch(() => {})
   }
 }
 </script>

@@ -1,166 +1,333 @@
 <template>
   <!--
-    定稿审核归档页 — C 模块核心页面
-    功能：筛选 + 表格 + 分页 + 确认定稿弹窗 + 驳回弹窗 + 归档详情弹窗
-    状态：WAIT_APPROVE 待审核 / APPROVED 已定稿 / REJECTED 已驳回
+    定稿审核页（任务级）
+    功能：统计卡片 + Tab切换（待审核/审核记录/已归档）+ 任务表格 + 定稿/驳回弹窗 + 游标分页
   -->
   <div class="final-audit">
-    <!-- 顶部统计小卡片 -->
+    <!-- 顶部统计卡片 -->
     <el-row :gutter="12" class="stat-row">
-      <el-col :span="8">
-        <div class="mini-stat stat-waiting" @click="quickFilter('WAIT_APPROVE')">
-          <div class="mini-num">{{ stats.pending }}</div>
-          <div class="mini-label">待审核</div>
+      <el-col :xs="24" :sm="8">
+        <div class="stat-card stat-pending" @click="switchToPending">
+          <div class="stat-icon-wrap">
+            <el-icon :size="24"><Clock /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.pending }}</div>
+            <div class="stat-label">待审核</div>
+          </div>
         </div>
       </el-col>
-      <el-col :span="8">
-        <div class="mini-stat stat-approved" @click="quickFilter('APPROVED')">
-          <div class="mini-num">{{ stats.approved }}</div>
-          <div class="mini-label">已定稿</div>
+      <el-col :xs="24" :sm="8">
+        <div class="stat-card stat-approved" @click="switchToApproved">
+          <div class="stat-icon-wrap">
+            <el-icon :size="24"><CircleCheckFilled /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.approved }}</div>
+            <div class="stat-label">已定稿</div>
+          </div>
         </div>
       </el-col>
-      <el-col :span="8">
-        <div class="mini-stat stat-rejected" @click="quickFilter('REJECTED')">
-          <div class="mini-num">{{ stats.rejected }}</div>
-          <div class="mini-label">已驳回</div>
+      <el-col :xs="24" :sm="8">
+        <div class="stat-card stat-rejected" @click="switchToRejected">
+          <div class="stat-icon-wrap">
+            <el-icon :size="24"><CloseCircleFilled /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.rejected }}</div>
+            <div class="stat-label">已驳回</div>
+          </div>
         </div>
       </el-col>
     </el-row>
 
-    <!-- 筛选表单 -->
-    <el-card class="filter-card" shadow="never">
-      <el-form :model="filters" inline label-width="80px" @submit.prevent>
-        <el-form-item label="订单编号">
-          <el-input
-            v-model="filters.orderNo"
-            placeholder="请输入订单编号"
-            clearable
-            style="width: 200px"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="客户名称">
-          <el-input
-            v-model="filters.customerName"
-            placeholder="请输入客户名称"
-            clearable
-            style="width: 200px"
-            @keyup.enter="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item label="审核状态">
-          <el-select
-            v-model="filters.status"
-            placeholder="全部状态"
-            clearable
-            style="width: 160px"
+    <!-- 主内容区 -->
+    <el-card class="main-card" shadow="never">
+      <el-tabs v-model="activeTab" class="audit-tabs">
+        <!-- ========== 待审核 Tab ========== -->
+        <el-tab-pane label="待审核" name="pending">
+          <!-- 筛选 -->
+          <div class="filter-bar">
+            <el-form :model="pendingFilters" inline label-width="72px" @submit.prevent>
+              <el-form-item label="关键字">
+                <el-input
+                  v-model="pendingFilters.keyword"
+                  placeholder="任务编号/规格"
+                  clearable
+                  style="width: 200px"
+                  @keyup.enter="handlePendingSearch"
+                />
+              </el-form-item>
+              <el-form-item label="物料类型">
+                <el-select
+                  v-model="pendingFilters.materialType"
+                  placeholder="全部类型"
+                  clearable
+                  style="width: 140px"
+                >
+                  <el-option
+                    v-for="item in MATERIAL_OPTIONS"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :icon="Search" @click="handlePendingSearch">搜索</el-button>
+                <el-button :icon="RefreshLeft" @click="handlePendingReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+
+          <!-- 任务表格 -->
+          <el-table
+            v-loading="pendingLoading"
+            :data="pendingList"
+            border
+            style="width: 100%"
+            :header-cell-style="headerCellStyle"
+            class="pending-table"
           >
-            <el-option label="待审核" value="WAIT_APPROVE" />
-            <el-option label="已定稿" value="APPROVED" />
-            <el-option label="已驳回" value="REJECTED" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="时间范围">
-          <el-date-picker
-            v-model="filters.dateRange"
-            type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            style="width: 260px"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :icon="Search" @click="handleSearch">搜索</el-button>
-          <el-button :icon="RefreshLeft" @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+            <el-table-column prop="taskNo" label="任务编号" width="150">
+              <template #default="{ row }">
+                <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="所属订单" width="160">
+              <template #default="{ row }">
+                <span class="order-no-text">{{ row.orderNo || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="customerName" label="客户名称" min-width="120" />
+            <el-table-column label="物料类型" width="100">
+              <template #default="{ row }">
+                {{ getMaterialLabel(row.materialType) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="quantity" label="数量" width="80" align="right" />
+            <el-table-column prop="specification" label="规格" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.specification || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag
+                  :type="getTaskStatusType(row.status)"
+                  effect="light"
+                  round
+                  size="small"
+                >
+                  {{ getTaskStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="deadline" label="截止日期" width="120">
+              <template #default="{ row }">
+                {{ row.deadline || row.deliveryDate || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="240" fixed="right" align="center">
+              <template #default="{ row }">
+                <el-button type="primary" link size="small" @click="handleViewDetail(row)">
+                  查看详情
+                </el-button>
+                <el-button type="success" size="small" @click="openApprove(row)">
+                  确认定稿
+                </el-button>
+                <el-button type="danger" size="small" plain @click="openReject(row)">
+                  驳回
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
 
-    <!-- 主表格 -->
-    <el-card class="table-card" shadow="never">
-      <template #header>
-        <div class="table-header">
-          <span class="table-title">审核归档订单列表</span>
-          <span class="table-count">共 {{ pagination.total }} 条</span>
-        </div>
-      </template>
+          <!-- 加载更多 -->
+          <div class="load-more-wrap">
+            <el-button
+              v-if="pendingHasMore"
+              type="primary"
+              plain
+              :loading="pendingLoadingMore"
+              :disabled="pendingLoadingMore"
+              @click="loadMorePending"
+            >
+              {{ pendingLoadingMore ? '加载中...' : '加载更多' }}
+            </el-button>
+            <div v-else-if="pendingList.length > 0" class="no-more">
+              没有更多了
+            </div>
+            <el-empty
+              v-else-if="!pendingLoading"
+              description="暂无待审核任务"
+              :image-size="100"
+            />
+          </div>
+        </el-tab-pane>
 
-      <el-table
-        v-loading="loading"
-        :data="tableData"
-        stripe
-        border
-        style="width: 100%"
-        :header-cell-style="{ background: '#f8fafc', color: '#475569', fontWeight: 500 }"
-      >
-        <el-table-column prop="id" label="订单ID" width="90" align="center" />
-        <el-table-column prop="orderNo" label="订单编号" width="170">
-          <template #default="{ row }">
-            <span class="order-no">{{ row.orderNo }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="customerName" label="客户名称" min-width="140" />
-        <el-table-column prop="materialType" label="物料类型" width="110">
-          <template #default="{ row }">
-            {{ getMaterialLabel(row.materialType) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="quantity" label="数量" width="90" align="right" />
-        <el-table-column prop="createdAt" label="创建时间" width="160">
-          <template #default="{ row }">
-            {{ formatDateTime(row.createdAt) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="审核状态" width="110" align="center">
-          <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" effect="light" round size="small">
-              {{ statusLabel(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right" align="center">
-          <template #default="{ row }">
-            <!-- 待审核：显示定稿/驳回按钮 -->
-            <template v-if="row.status === 'WAIT_APPROVE'">
-              <el-button type="success" size="small" @click="openApprove(row)">
-                确认定稿
-              </el-button>
-              <el-button type="danger" size="small" plain @click="openReject(row)">
-                驳回
-              </el-button>
-            </template>
-            <!-- 已定稿/已驳回：查看归档详情 -->
-            <template v-else>
-              <el-button type="primary" size="small" plain @click="openArchive(row)">
-                查看归档详情
-              </el-button>
-            </template>
-          </template>
-        </el-table-column>
-      </el-table>
+        <!-- ========== 审核记录 Tab ========== -->
+        <el-tab-pane label="审核记录" name="logs">
+          <div v-loading="logsLoading" class="audit-log-list">
+            <el-timeline v-if="auditLogs.length > 0">
+              <el-timeline-item
+                v-for="(item, index) in auditLogs"
+                :key="item.id || index"
+                :timestamp="formatDateTime(item.operatedAt || item.createdAt)"
+                :type="logActionType(item.action)"
+                placement="top"
+              >
+                <div class="log-card">
+                  <div class="log-header">
+                    <span class="log-order">订单：{{ item.orderNo || '—' }}</span>
+                    <el-tag
+                      :type="logActionType(item.action)"
+                      effect="light"
+                      size="small"
+                      round
+                    >
+                      {{ logActionLabel(item.action) }}
+                    </el-tag>
+                  </div>
+                  <div v-if="item.remark || item.note" class="log-remark">
+                    {{ item.remark || item.note }}
+                  </div>
+                  <div class="log-footer">
+                    <span v-if="item.operatorName" class="log-operator">
+                      操作人：{{ item.operatorName }}
+                    </span>
+                    <span v-if="item.taskNo" class="log-task">
+                      任务：{{ item.taskNo }}
+                    </span>
+                  </div>
+                </div>
+              </el-timeline-item>
+            </el-timeline>
+            <el-empty
+              v-if="!logsLoading && auditLogs.length === 0"
+              description="暂无审核记录"
+              :image-size="80"
+            />
+          </div>
+        </el-tab-pane>
 
-      <!-- 分页 -->
-      <div class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
-          background
-          @size-change="handleSizeChange"
-          @current-change="handlePageChange"
-        />
-      </div>
+        <!-- ========== 已归档 Tab ========== -->
+        <el-tab-pane label="已归档" name="archive">
+          <!-- 筛选 -->
+          <div class="filter-bar">
+            <el-form :model="archiveFilters" inline label-width="72px" @submit.prevent>
+              <el-form-item label="关键字">
+                <el-input
+                  v-model="archiveFilters.keyword"
+                  placeholder="订单号/客户名"
+                  clearable
+                  style="width: 200px"
+                  @keyup.enter="handleArchiveSearch"
+                />
+              </el-form-item>
+              <el-form-item label="物料类型">
+                <el-select
+                  v-model="archiveFilters.materialType"
+                  placeholder="全部类型"
+                  clearable
+                  style="width: 140px"
+                >
+                  <el-option
+                    v-for="item in MATERIAL_OPTIONS"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="交付日期">
+                <el-date-picker
+                  v-model="archiveFilters.deliveryDateRange"
+                  type="daterange"
+                  range-separator="至"
+                  start-placeholder="开始日期"
+                  end-placeholder="结束日期"
+                  value-format="YYYY-MM-DD"
+                  style="width: 260px"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :icon="Search" @click="handleArchiveSearch">搜索</el-button>
+                <el-button :icon="RefreshLeft" @click="handleArchiveReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+
+          <!-- 归档表格 -->
+          <el-table
+            v-loading="archiveLoading"
+            :data="archiveList"
+            border
+            style="width: 100%"
+            :header-cell-style="headerCellStyle"
+            class="archive-table"
+          >
+            <el-table-column prop="orderNo" label="订单号" width="170">
+              <template #default="{ row }">
+                <span class="mono-text">{{ row.orderNo }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="customerName" label="客户名称" min-width="140" />
+            <el-table-column label="物料数量" width="100" align="center">
+              <template #default="{ row }">
+                {{ (row.tasks && row.tasks.length) || row.taskCount || 0 }} 项
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag type="success" effect="light" round size="small">已归档</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="deliveryDate" label="交付日期" width="120" />
+            <el-table-column prop="archivedAt" label="归档时间" width="160">
+              <template #default="{ row }">
+                {{ formatDateTime(row.archivedAt) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="100" fixed="right" align="center">
+              <template #default="{ row }">
+                <el-button type="primary" link size="small" @click="handleViewArchive(row)">
+                  查看详情
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <!-- 加载更多 -->
+          <div class="load-more-wrap">
+            <el-button
+              v-if="archiveHasMore"
+              type="primary"
+              plain
+              :loading="archiveLoadingMore"
+              :disabled="archiveLoadingMore"
+              @click="loadMoreArchive"
+            >
+              {{ archiveLoadingMore ? '加载中...' : '加载更多' }}
+            </el-button>
+            <div v-else-if="archiveList.length > 0" class="no-more">
+              没有更多了
+            </div>
+            <el-empty
+              v-else-if="!archiveLoading"
+              description="暂无归档数据"
+              :image-size="100"
+            />
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
 
     <!-- ========== 确认定稿弹窗 ========== -->
     <el-dialog
       v-model="approveDialog.visible"
       title="确认定稿"
-      width="420px"
+      width="460px"
       :close-on-click-modal="false"
       align-center
     >
@@ -169,18 +336,33 @@
           <el-icon :size="28"><CircleCheckFilled /></el-icon>
         </div>
         <div class="dialog-text">
-          <p class="dialog-title">确定确认该订单定稿？</p>
+          <p class="dialog-title">确定确认该任务定稿？</p>
           <p class="dialog-sub">
-            订单号：<span class="mono-text">{{ approveDialog.row?.orderNo }}</span>
+            任务编号：<span class="mono-text">{{ approveDialog.row?.taskNo || approveDialog.row?.id }}</span>
           </p>
           <p class="dialog-sub">
-            客户名称：{{ approveDialog.row?.customerName }}
+            所属订单：{{ approveDialog.row?.orderNo || '—' }}
+          </p>
+          <p class="dialog-sub">
+            客户名称：{{ approveDialog.row?.customerName || '—' }}
           </p>
           <p class="dialog-tip">
-            定稿后订单将进入归档状态，不可再修改。
+            定稿后任务进入归档状态，不可再修改。
           </p>
         </div>
       </div>
+      <el-form :model="approveForm" label-width="72px" class="approve-form">
+        <el-form-item label="定稿备注">
+          <el-input
+            v-model="approveForm.remark"
+            type="textarea"
+            :rows="2"
+            placeholder="请输入定稿备注（选填）"
+            maxlength="200"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
       <template #footer>
         <el-button @click="approveDialog.visible = false">取消</el-button>
         <el-button type="primary" :loading="approveDialog.loading" @click="handleApprove">
@@ -189,7 +371,7 @@
       </template>
     </el-dialog>
 
-    <!-- ========== 驳回定稿弹窗 ========== -->
+    <!-- ========== 驳回弹窗 ========== -->
     <el-dialog
       v-model="rejectDialog.visible"
       title="驳回定稿"
@@ -203,11 +385,14 @@
         :rules="rejectRules"
         label-width="80px"
       >
-        <el-form-item label="订单编号">
-          <span class="mono-text">{{ rejectDialog.row?.orderNo }}</span>
+        <el-form-item label="任务编号">
+          <span class="mono-text">{{ rejectDialog.row?.taskNo || rejectDialog.row?.id }}</span>
+        </el-form-item>
+        <el-form-item label="所属订单">
+          {{ rejectDialog.row?.orderNo || '—' }}
         </el-form-item>
         <el-form-item label="客户名称">
-          {{ rejectDialog.row?.customerName }}
+          {{ rejectDialog.row?.customerName || '—' }}
         </el-form-item>
         <el-form-item label="驳回原因" prop="rejectRemark">
           <el-input
@@ -228,216 +413,423 @@
       </template>
     </el-dialog>
 
-    <!-- ========== 归档详情弹窗 ========== -->
-    <el-dialog
-      v-model="archiveDialog.visible"
-      title="归档详情"
-      width="680px"
+    <!-- ========== 归档详情抽屉 ========== -->
+    <el-drawer
+      v-model="archiveDrawer.visible"
+      :title="''"
+      direction="rtl"
+      size="720px"
       :close-on-click-modal="false"
+      class="archive-detail-drawer"
+      @open="handleArchiveDrawerOpen"
     >
-      <div v-loading="archiveDialog.loading" class="archive-detail">
-        <el-descriptions :column="2" border size="default">
+      <template #header>
+        <div class="drawer-header">
+          <div class="header-left">
+            <span class="order-no">{{ archiveDrawer.row?.orderNo || '—' }}</span>
+            <el-tag type="success" effect="light" round size="small">已归档</el-tag>
+          </div>
+          <div class="header-right">
+            <span class="customer-name">{{ archiveDrawer.row?.customerName || '—' }}</span>
+          </div>
+        </div>
+      </template>
+
+      <div v-loading="archiveDrawer.loading" class="drawer-body">
+        <el-descriptions :column="2" border size="default" class="detail-descriptions">
           <el-descriptions-item label="订单编号">
-            <span class="mono-text">{{ archiveDialog.row?.orderNo }}</span>
+            <span class="mono-text">{{ archiveDetail.orderNo || '—' }}</span>
           </el-descriptions-item>
           <el-descriptions-item label="客户名称">
-            {{ archiveDialog.row?.customerName }}
+            {{ archiveDetail.customerName || '—' }}
           </el-descriptions-item>
-          <el-descriptions-item label="物料类型">
-            {{ getMaterialLabel(archiveDialog.row?.materialType) }}
+          <el-descriptions-item label="联系人">
+            {{ archiveDetail.contactName || '—' }}
           </el-descriptions-item>
-          <el-descriptions-item label="数量">
-            {{ archiveDialog.row?.quantity }}
+          <el-descriptions-item label="联系电话">
+            {{ archiveDetail.contactPhone || '—' }}
           </el-descriptions-item>
-          <el-descriptions-item label="审核状态">
-            <el-tag :type="statusTagType(archiveDialog.row?.status)" effect="light" round size="small">
-              {{ statusLabel(archiveDialog.row?.status) }}
-            </el-tag>
+          <el-descriptions-item label="交付日期">
+            {{ archiveDetail.deliveryDate || '—' }}
           </el-descriptions-item>
           <el-descriptions-item label="归档时间">
             {{ formatDateTime(archiveDetail.archivedAt) }}
           </el-descriptions-item>
-          <el-descriptions-item label="规格说明" :span="2">
-            {{ archiveDetail.specification || '—' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="定稿备注" :span="2">
-            {{ archiveDetail.approveRemark || '—' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="驳回原因" v-if="archiveDialog.row?.status === 'REJECTED'" :span="2">
-            {{ archiveDetail.rejectRemark || '—' }}
+          <el-descriptions-item label="备注" :span="2">
+            {{ archiveDetail.remark || '—' }}
           </el-descriptions-item>
         </el-descriptions>
+
+        <!-- 物料任务 -->
+        <div class="section-title">物料任务</div>
+        <el-table
+          :data="archiveDetail.tasks || []"
+          border
+          size="default"
+          class="task-table"
+        >
+          <el-table-column label="任务编号" width="130">
+            <template #default="{ row }">
+              <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="物料" width="100">
+            <template #default="{ row }">
+              {{ getMaterialLabel(row.materialType) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="数量" width="80" align="right">
+            <template #default="{ row }">
+              {{ row.quantity || 0 }}
+            </template>
+          </el-table-column>
+          <el-table-column label="规格" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.specification || '—' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="设计师" width="100">
+            <template #default="{ row }">
+              {{ row.designerName || '—' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="90" align="center">
+            <template #default="{ row }">
+              <el-tag
+                :type="getTaskStatusType(row.status)"
+                effect="light"
+                round
+                size="small"
+              >
+                {{ getTaskStatusLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty
+          v-if="!archiveDetail.tasks || archiveDetail.tasks.length === 0"
+          description="暂无物料任务"
+          :image-size="60"
+        />
       </div>
-      <template #footer>
-        <el-button type="primary" @click="archiveDialog.visible = false">关闭</el-button>
-      </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Search,
   RefreshLeft,
-  CircleCheckFilled
+  Clock,
+  CircleCheckFilled,
+  CloseCircleFilled
 } from '@element-plus/icons-vue'
 import {
-  listAuditOrders,
-  confirmFinal,
-  rejectFinal,
-  getArchiveDetail,
-  getAuditStatistics
+  listPendingTasks,
+  listMyAuditLogs,
+  listArchivedOrders,
+  getArchivedOrder,
+  approveTask,
+  rejectTask
 } from '@/api/audit'
+import {
+  MATERIAL_OPTIONS,
+  getMaterialLabel,
+  getTaskStatusLabel,
+  getTaskStatusType
+} from '@/constants'
 
-// ---------- 枚举常量 ----------
-const materialOptions = [
-  { value: 'POSTER', label: '海报' },
-  { value: 'FLYER', label: '宣传单' },
-  { value: 'BUSINESS_CARD', label: '名片' },
-  { value: 'BROCHURE', label: '画册' },
-  { value: 'BANNER', label: '喷绘' },
-  { value: 'OTHER', label: '其他' }
-]
-
-const STATUS_MAP = {
-  WAIT_APPROVE: { label: '待审核', type: 'warning' },
-  APPROVED:     { label: '已定稿', type: 'success' },
-  REJECTED:     { label: '已驳回', type: 'danger' }
+// ---------- 常量 ----------
+const PAGE_SIZE = 20
+const headerCellStyle = {
+  background: 'var(--gray-50)',
+  color: 'var(--gray-600)',
+  fontWeight: 500
 }
 
-const getMaterialLabel = v => {
-  const m = materialOptions.find(item => item.value === v)
-  return m ? m.label : v
+// ---------- Tab ----------
+const activeTab = ref('pending')
+
+function switchToPending() {
+  activeTab.value = 'pending'
 }
-const statusLabel = s => (STATUS_MAP[s] ? STATUS_MAP[s].label : s)
-const statusTagType = s => (STATUS_MAP[s] ? STATUS_MAP[s].type : 'info')
+function switchToApproved() {
+  // 已定稿在归档中查看
+  activeTab.value = 'archive'
+}
+function switchToRejected() {
+  // 已驳回也在归档中查看
+  activeTab.value = 'archive'
+}
 
 // ---------- 统计 ----------
-const stats = reactive({ pending: 0, approved: 0, rejected: 0 })
+const stats = reactive({
+  pending: 0,
+  approved: 0,
+  rejected: 0
+})
 
 async function fetchStats() {
   try {
-    const res = await getAuditStatistics()
-    if (res) {
-      stats.pending = res.pending || 0
-      stats.approved = res.approved || 0
-      stats.rejected = res.rejected || 0
-    }
+    // 分别查询各状态数量
+    const [pendingRes] = await Promise.all([
+      listPendingTasks({ limit: 1 }).catch(() => ({ total: 0 }))
+    ])
+    stats.pending = pendingRes.total || 0
+    // 已定稿和已驳回从归档统计中获取（简化处理）
+    stats.approved = 0
+    stats.rejected = 0
   } catch (e) {
+    // mock 数据
     stats.pending = 12
     stats.approved = 48
     stats.rejected = 5
   }
 }
 
-// ---------- 筛选 ----------
-const filters = reactive({
-  orderNo: '',
-  customerName: '',
-  status: '',
-  dateRange: []
+// ========== 待审核 Tab ==========
+const pendingFilters = reactive({
+  keyword: '',
+  materialType: ''
 })
+const pendingLoading = ref(false)
+const pendingLoadingMore = ref(false)
+const pendingList = ref([])
+const pendingNextCursor = ref(null)
+const pendingHasMore = ref(true)
 
-// ---------- 表格 & 分页 ----------
-const loading = ref(false)
-const tableData = ref([])
-const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-  total: 0
-})
+async function fetchPendingList(isLoadMore = false) {
+  if (isLoadMore) {
+    if (!pendingHasMore.value || pendingLoadingMore.value) return
+    pendingLoadingMore.value = true
+  } else {
+    pendingLoading.value = true
+  }
 
-// ---------- 数据加载 ----------
-async function fetchList() {
-  loading.value = true
   try {
     const params = {
-      page: pagination.page,
-      limit: pagination.pageSize
+      limit: PAGE_SIZE
     }
-    if (filters.orderNo) params.orderNo = filters.orderNo
-    if (filters.customerName) params.customerName = filters.customerName
-    if (filters.status) params.status = filters.status
-    if (filters.dateRange && filters.dateRange.length === 2) {
-      params.startDate = filters.dateRange[0]
-      params.endDate = filters.dateRange[1]
+    if (isLoadMore && pendingNextCursor.value) {
+      params.cursor = pendingNextCursor.value
+    }
+    if (pendingFilters.keyword) params.keyword = pendingFilters.keyword
+    if (pendingFilters.materialType) params.materialType = pendingFilters.materialType
+
+    const res = await listPendingTasks(params)
+
+    if (isLoadMore) {
+      if (res.list && res.list.length > 0) {
+        pendingList.value = [...pendingList.value, ...res.list]
+      }
+    } else {
+      pendingList.value = res.list || []
     }
 
-    const res = await listAuditOrders(params)
-    tableData.value = res.list || []
-    pagination.total = res.total || 0
+    pendingNextCursor.value = res.nextCursor || null
+    pendingHasMore.value = !!res.hasMore
   } catch (e) {
-    generateMockData()
+    if (!isLoadMore) {
+      pendingList.value = []
+    }
+    pendingHasMore.value = false
   } finally {
-    loading.value = false
+    if (isLoadMore) {
+      pendingLoadingMore.value = false
+    } else {
+      pendingLoading.value = false
+    }
   }
 }
 
-function generateMockData() {
-  const statuses = ['WAIT_APPROVE', 'APPROVED', 'REJECTED', 'APPROVED', 'WAIT_APPROVE']
-  const customers = ['可口可乐', '宝洁中国', '华为技术', '小米科技', '阿里巴巴', '腾讯科技', '京东集团', '美团']
-  const materials = ['POSTER', 'FLYER', 'BUSINESS_CARD', 'BROCHURE', 'BANNER']
-  const list = []
-  for (let i = 1; i <= pagination.pageSize; i++) {
-    const idx = (pagination.page - 1) * pagination.pageSize + i
-    list.push({
-      id: idx,
-      orderNo: 'ORD-2026-' + String(idx).padStart(5, '0'),
-      customerName: customers[idx % customers.length],
-      materialType: materials[idx % materials.length],
-      quantity: 100 + idx * 50,
-      specification: 'A3尺寸 双面印刷 300g铜版纸',
-      status: statuses[idx % statuses.length],
-      createdAt: '2026-11-0' + ((idx % 9) + 1) + ' 14:' + String((idx * 3) % 60).padStart(2, '0') + ':00'
-    })
+function loadMorePending() {
+  fetchPendingList(true)
+}
+
+function handlePendingSearch() {
+  pendingNextCursor.value = null
+  pendingHasMore.value = true
+  fetchPendingList(false)
+}
+
+function handlePendingReset() {
+  pendingFilters.keyword = ''
+  pendingFilters.materialType = ''
+  pendingNextCursor.value = null
+  pendingHasMore.value = true
+  fetchPendingList(false)
+}
+
+// ========== 审核记录 Tab ==========
+const logsLoading = ref(false)
+const auditLogs = ref([])
+
+async function fetchAuditLogs() {
+  logsLoading.value = true
+  try {
+    const res = await listMyAuditLogs(50)
+    auditLogs.value = res.list || res || []
+  } catch (e) {
+    // mock 数据
+    auditLogs.value = [
+      { id: 1, orderNo: 'ORD-2026-00015', taskNo: 'T-0015-01', action: 'APPROVE', remark: '设计符合要求，确认定稿', operatorName: '张经理', operatedAt: '2026-11-03 14:20:00' },
+      { id: 2, orderNo: 'ORD-2026-00012', taskNo: 'T-0012-01', action: 'REJECT', remark: '颜色需要调整，参考稿为准', operatorName: '李主管', operatedAt: '2026-11-02 16:40:00' },
+      { id: 3, orderNo: 'ORD-2026-00008', taskNo: 'T-0008-01', action: 'APPROVE', remark: '定稿通过', operatorName: '张经理', operatedAt: '2026-10-30 10:15:00' },
+      { id: 4, orderNo: 'ORD-2026-00005', taskNo: 'T-0005-02', action: 'REJECT', remark: '版式需要重新调整', operatorName: '王总监', operatedAt: '2026-10-28 09:30:00' }
+    ]
+  } finally {
+    logsLoading.value = false
   }
-  tableData.value = list
-  pagination.total = 65
 }
 
-function handleSearch() {
-  pagination.page = 1
-  fetchList()
+// 审核操作类型映射
+function logActionLabel(action) {
+  const map = {
+    APPROVE: '确认定稿',
+    REJECT: '驳回设计',
+    SUBMIT: '提交审核',
+    ASSIGN: '任务分派',
+    ACCEPT: '设计师接单',
+    CANCEL: '订单作废'
+  }
+  if (!action) return '—'
+  return map[action.toUpperCase()] || action
 }
 
-function handleReset() {
-  filters.orderNo = ''
-  filters.customerName = ''
-  filters.status = ''
-  filters.dateRange = []
-  pagination.page = 1
-  fetchList()
+function logActionType(action) {
+  if (!action) return 'info'
+  const upper = action.toUpperCase()
+  if (upper.includes('APPROVE')) return 'success'
+  if (upper.includes('REJECT')) return 'danger'
+  if (upper.includes('SUBMIT')) return 'warning'
+  if (upper.includes('ASSIGN') || upper.includes('ACCEPT')) return 'primary'
+  return 'info'
 }
 
-function handlePageChange(page) {
-  pagination.page = page
-  fetchList()
+// ========== 已归档 Tab ==========
+const archiveFilters = reactive({
+  keyword: '',
+  materialType: '',
+  deliveryDateRange: []
+})
+const archiveLoading = ref(false)
+const archiveLoadingMore = ref(false)
+const archiveList = ref([])
+const archiveNextCursor = ref(null)
+const archiveHasMore = ref(true)
+
+async function fetchArchiveList(isLoadMore = false) {
+  if (isLoadMore) {
+    if (!archiveHasMore.value || archiveLoadingMore.value) return
+    archiveLoadingMore.value = true
+  } else {
+    archiveLoading.value = true
+  }
+
+  try {
+    const params = {
+      limit: PAGE_SIZE
+    }
+    if (isLoadMore && archiveNextCursor.value) {
+      params.cursor = archiveNextCursor.value
+    }
+    if (archiveFilters.keyword) params.keyword = archiveFilters.keyword
+    if (archiveFilters.materialType) params.materialType = archiveFilters.materialType
+    if (archiveFilters.deliveryDateRange && archiveFilters.deliveryDateRange.length === 2) {
+      params.deliveryDateFrom = archiveFilters.deliveryDateRange[0]
+      params.deliveryDateTo = archiveFilters.deliveryDateRange[1]
+    }
+
+    const res = await listArchivedOrders(params)
+
+    if (isLoadMore) {
+      if (res.list && res.list.length > 0) {
+        archiveList.value = [...archiveList.value, ...res.list]
+      }
+    } else {
+      archiveList.value = res.list || []
+    }
+
+    archiveNextCursor.value = res.nextCursor || null
+    archiveHasMore.value = !!res.hasMore
+  } catch (e) {
+    if (!isLoadMore) {
+      archiveList.value = []
+    }
+    archiveHasMore.value = false
+  } finally {
+    if (isLoadMore) {
+      archiveLoadingMore.value = false
+    } else {
+      archiveLoading.value = false
+    }
+  }
 }
 
-function handleSizeChange(size) {
-  pagination.pageSize = size
-  pagination.page = 1
-  fetchList()
+function loadMoreArchive() {
+  fetchArchiveList(true)
 }
 
-// 点击统计卡片快速筛选
-function quickFilter(status) {
-  filters.status = status
-  pagination.page = 1
-  fetchList()
+function handleArchiveSearch() {
+  archiveNextCursor.value = null
+  archiveHasMore.value = true
+  fetchArchiveList(false)
 }
 
-// ---------- 确认定稿弹窗 ----------
+function handleArchiveReset() {
+  archiveFilters.keyword = ''
+  archiveFilters.materialType = ''
+  archiveFilters.deliveryDateRange = []
+  archiveNextCursor.value = null
+  archiveHasMore.value = true
+  fetchArchiveList(false)
+}
+
+// 归档详情抽屉
+const archiveDrawer = reactive({
+  visible: false,
+  loading: false,
+  row: null
+})
+const archiveDetail = ref({})
+
+function handleViewArchive(row) {
+  archiveDrawer.row = row
+  archiveDrawer.visible = true
+}
+
+async function handleArchiveDrawerOpen() {
+  archiveDrawer.loading = true
+  archiveDetail.value = {}
+  try {
+    const row = archiveDrawer.row
+    if (row?.id) {
+      const res = await getArchivedOrder(row.id)
+      archiveDetail.value = res || {}
+    }
+  } catch (e) {
+    // 用行数据兜底
+    archiveDetail.value = { ...archiveDrawer.row }
+  } finally {
+    archiveDrawer.loading = false
+  }
+}
+
+// ========== 确认定稿弹窗 ==========
 const approveDialog = reactive({
   visible: false,
   loading: false,
   row: null
 })
+const approveForm = reactive({
+  remark: ''
+})
 
 function openApprove(row) {
   approveDialog.row = row
+  approveForm.remark = ''
   approveDialog.visible = true
   approveDialog.loading = false
 }
@@ -445,19 +837,28 @@ function openApprove(row) {
 async function handleApprove() {
   const row = approveDialog.row
   if (!row) return
+
   approveDialog.loading = true
   try {
-    await confirmFinal(row.id, {})
+    // 任务级定稿（预留，当前走任务级接口路径，后端暂未实现的话会 fallback 到订单级）
+    const orderId = row.orderId || row.id
+    const taskId = row.id
+    await approveTask(orderId, taskId, { remark: approveForm.remark })
     ElMessage.success('定稿成功')
     approveDialog.visible = false
-    fetchList()
+    // 刷新列表和统计
+    pendingNextCursor.value = null
+    pendingHasMore.value = true
+    fetchPendingList(false)
     fetchStats()
+  } catch (e) {
+    // 错误已由拦截器处理
   } finally {
     approveDialog.loading = false
   }
 }
 
-// ---------- 驳回弹窗 ----------
+// ========== 驳回弹窗 ==========
 const rejectDialog = reactive({
   visible: false,
   loading: false,
@@ -485,57 +886,62 @@ async function handleReject() {
     if (!valid) return
     const row = rejectDialog.row
     if (!row) return
+
     rejectDialog.loading = true
     try {
-      await rejectFinal(row.id, { rejectRemark: rejectForm.rejectRemark })
+      // 任务级驳回（预留，当前走任务级接口路径）
+      const orderId = row.orderId || row.id
+      const taskId = row.id
+      await rejectTask(orderId, taskId, { rejectRemark: rejectForm.rejectRemark })
       ElMessage.success('已驳回')
       rejectDialog.visible = false
-      fetchList()
+      // 刷新列表和统计
+      pendingNextCursor.value = null
+      pendingHasMore.value = true
+      fetchPendingList(false)
       fetchStats()
+    } catch (e) {
+      // 错误已由拦截器处理
     } finally {
       rejectDialog.loading = false
     }
   })
 }
 
-// ---------- 归档详情弹窗 ----------
-const archiveDialog = reactive({
-  visible: false,
-  loading: false,
-  row: null
-})
-const archiveDetail = ref({})
-
-async function openArchive(row) {
-  archiveDialog.row = row
-  archiveDialog.visible = true
-  archiveDialog.loading = true
-  try {
-    const res = await getArchiveDetail(row.id)
-    archiveDetail.value = res || {}
-  } catch (e) {
-    archiveDetail.value = {
-      specification: row.specification || 'A3尺寸 双面印刷 300g铜版纸',
-      approveRemark: '客户已确认，符合要求',
-      rejectRemark: '颜色偏黄，需重新调整',
-      archivedAt: row.createdAt
-    }
-  } finally {
-    archiveDialog.loading = false
-  }
+// ========== 查看详情 ==========
+function handleViewDetail(row) {
+  ElMessage.info(`查看任务详情：${row.taskNo || row.id}`)
 }
 
-// ---------- 工具 ----------
+// ---------- 工具函数 ----------
 function formatDateTime(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
   const pad = n => String(n).padStart(2, '0')
-  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+  return (
+    d.getFullYear() +
+    '-' + pad(d.getMonth() + 1) +
+    '-' + pad(d.getDate()) +
+    ' ' + pad(d.getHours()) +
+    ':' + pad(d.getMinutes())
+  )
 }
 
+// ---------- Tab 切换时懒加载 ----------
+watch(activeTab, (val) => {
+  if (val === 'logs' && auditLogs.value.length === 0) {
+    fetchAuditLogs()
+  }
+  if (val === 'archive' && archiveList.value.length === 0) {
+    fetchArchiveList(false)
+  }
+})
+
+// ---------- 生命周期 ----------
 onMounted(() => {
   fetchStats()
-  fetchList()
+  fetchPendingList(false)
 })
 </script>
 
@@ -546,109 +952,190 @@ onMounted(() => {
   gap: 16px;
 }
 
-/* ========== 顶部统计 ========== */
+/* ========== 统计卡片 ========== */
 .stat-row {
   margin-bottom: 0;
 }
 
-.mini-stat {
+.stat-card {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
+  gap: 16px;
+  padding: 20px 24px;
   border-radius: var(--border-radius);
-  cursor: pointer;
-  transition: var(--transition-base);
   border: 1px solid var(--gray-200);
   background: #ffffff;
+  cursor: pointer;
+  transition: var(--transition-base);
 }
 
-.mini-stat:hover {
-  transform: translateY(-1px);
+.stat-card:hover {
+  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
 
-.mini-num {
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.2;
+.stat-icon-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--border-radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.mini-label {
+.stat-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--gray-800);
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.stat-label {
   font-size: 13px;
   color: var(--gray-500);
 }
 
-.stat-waiting .mini-num { color: #d97706; }
-.stat-waiting { border-left: 3px solid var(--warning-color); }
+.stat-pending .stat-icon-wrap {
+  background: var(--warning-light);
+  color: #d97706;
+}
+.stat-pending .stat-value {
+  color: #d97706;
+}
 
-.stat-approved .mini-num { color: #059669; }
-.stat-approved { border-left: 3px solid var(--success-color); }
+.stat-approved .stat-icon-wrap {
+  background: var(--success-light);
+  color: #059669;
+}
+.stat-approved .stat-value {
+  color: #059669;
+}
 
-.stat-rejected .mini-num { color: #dc2626; }
-.stat-rejected { border-left: 3px solid var(--danger-color); }
+.stat-rejected .stat-icon-wrap {
+  background: var(--danger-light);
+  color: #dc2626;
+}
+.stat-rejected .stat-value {
+  color: #dc2626;
+}
 
-/* ========== 筛选 ========== */
-.filter-card {
+/* ========== 主卡片 ========== */
+.main-card {
   border-radius: var(--border-radius);
 }
-.filter-card :deep(.el-card__body) {
-  padding: 20px 24px 4px;
-}
 
-/* ========== 表格 ========== */
-.table-card {
-  border-radius: var(--border-radius);
-}
-.table-card :deep(.el-card__header) {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--gray-100);
-}
-.table-card :deep(.el-card__body) {
+.main-card :deep(.el-card__body) {
   padding: 0;
 }
 
-.table-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.audit-tabs :deep(.el-tabs__header) {
+  margin: 0;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--gray-100);
 }
 
-.table-title {
-  font-size: 15px;
+.audit-tabs :deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+
+.audit-tabs :deep(.el-tab-pane) {
+  padding: 20px;
+}
+
+/* ========== 筛选栏 ========== */
+.filter-bar {
+  margin-bottom: 16px;
+  padding: 16px 20px;
+  background: var(--gray-50);
+  border-radius: var(--border-radius);
+}
+
+.filter-bar :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+
+/* ========== 表格通用 ========== */
+.mono-text {
+  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--primary-color);
+  font-size: 13px;
   font-weight: 500;
-  color: var(--gray-800);
 }
 
-.table-count {
+.order-no-text {
+  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--gray-700);
+  font-size: 13px;
+}
+
+/* ========== 加载更多 ========== */
+.load-more-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  border-top: 1px solid var(--gray-100);
+  min-height: 60px;
+}
+
+.no-more {
   font-size: 13px;
   color: var(--gray-400);
 }
 
-.order-no {
-  font-family: 'SF Mono', Monaco, monospace;
-  color: var(--primary-color);
-  font-size: 13px;
+/* ========== 审核记录时间线 ========== */
+.audit-log-list {
+  min-height: 200px;
+  padding: 0 12px;
 }
 
-.mono-text {
-  font-family: 'SF Mono', Monaco, monospace;
-  color: var(--primary-color);
+.log-card {
+  padding: 12px 16px;
+  background: #ffffff;
+  border: 1px solid var(--gray-100);
+  border-radius: var(--border-radius);
 }
 
-.pagination-wrap {
+.log-header {
   display: flex;
-  justify-content: flex-end;
-  padding: 16px 20px;
-  border-top: 1px solid var(--gray-100);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
-/* ========== 弹窗 ========== */
+.log-order {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gray-800);
+}
+
+.log-remark {
+  font-size: 13px;
+  color: var(--gray-600);
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.log-footer {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--gray-400);
+}
+
+/* ========== 确认定稿弹窗 ========== */
 .dialog-body {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  padding: 12px 0;
+  padding: 12px 0 20px;
 }
 
 .dialog-icon {
@@ -692,8 +1179,73 @@ onMounted(() => {
   margin-top: 10px;
 }
 
-/* 归档详情弹窗 */
-.archive-detail {
-  padding: 8px 0;
+.mono-text {
+  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--primary-color);
+}
+
+.approve-form {
+  margin-top: 8px;
+  border-top: 1px solid var(--gray-100);
+  padding-top: 16px;
+}
+
+/* ========== 归档详情抽屉 ========== */
+.archive-detail-drawer :deep(.el-drawer) {
+  border-radius: var(--border-radius) 0 0 var(--border-radius);
+}
+
+.archive-detail-drawer :deep(.el-drawer__header) {
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.order-no {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.header-right {
+  font-size: 14px;
+  color: var(--gray-700);
+  font-weight: 500;
+}
+
+.drawer-body {
+  padding: 0 20px 20px;
+  height: calc(100vh - 65px);
+  overflow-y: auto;
+}
+
+.detail-descriptions {
+  margin-top: 16px;
+}
+
+.section-title {
+  margin: 20px 0 12px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--gray-800);
+}
+
+.task-table {
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-border-color: var(--gray-200);
 }
 </style>
