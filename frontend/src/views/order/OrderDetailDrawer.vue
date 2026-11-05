@@ -321,17 +321,18 @@
         <el-form-item label="订单编号">
           <span class="mono-text">{{ detail.orderNo || '—' }}</span>
         </el-form-item>
-        <el-form-item label="选择版本" prop="version">
+        <el-form-item label="选择任务" prop="taskId">
           <el-select
-            v-model="feedbackForm.version"
-            placeholder="请选择版本"
+            v-model="feedbackForm.taskId"
+            placeholder="请选择意见针对的任务"
             style="width: 100%"
+            @change="syncFeedbackTaskVersion"
           >
             <el-option
-              v-for="v in detail.designVersions || []"
-              :key="v.id || v.version || v.versionNo"
-              :label="'V' + (v.version || v.versionNo || '1') + ' - ' + (v.description || '无说明')"
-              :value="v.version || v.versionNo || 1"
+              v-for="t in detail.tasks || []"
+              :key="t.id"
+              :label="(t.taskNo || t.id) + ' - ' + getMaterialLabel(t.materialType)"
+              :value="t.id"
             />
           </el-select>
         </el-form-item>
@@ -571,13 +572,15 @@ const feedbackDialog = ref({
   loading: false
 })
 const feedbackFormRef = ref(null)
+// version 是所选任务的乐观锁版本号（随任务选择自动带出，无需手填）
 const feedbackForm = ref({
+  taskId: null,
   version: null,
   content: ''
 })
 const feedbackRules = {
-  version: [
-    { required: true, message: '请选择版本', trigger: 'change' }
+  taskId: [
+    { required: true, message: '请选择任务', trigger: 'change' }
   ],
   content: [
     { required: true, message: '请输入意见内容', trigger: 'blur' },
@@ -586,27 +589,37 @@ const feedbackRules = {
 }
 
 function openFeedbackDialog() {
-  // 默认选中最新版本
-  const versions = detail.value.designVersions || []
-  if (versions.length > 0) {
-    const latest = versions[versions.length - 1]
-    feedbackForm.value.version = latest.version || latest.versionNo || 1
-  } else {
-    feedbackForm.value.version = null
-  }
+  // 默认选中第一个任务，version 取该任务的乐观锁版本号
+  const tasks = detail.value.tasks || []
+  feedbackForm.value.taskId = tasks.length > 0 ? tasks[0].id : null
+  syncFeedbackTaskVersion()
   feedbackForm.value.content = ''
   feedbackDialog.value.visible = true
   feedbackDialog.value.loading = false
+}
+
+// 任务切换时同步乐观锁 version
+function syncFeedbackTaskVersion() {
+  const tasks = detail.value.tasks || []
+  const task = tasks.find(t => t.id === feedbackForm.value.taskId)
+  feedbackForm.value.version = task ? task.version : null
 }
 
 async function handleSubmitFeedback() {
   if (!feedbackFormRef.value) return
   feedbackFormRef.value.validate(async valid => {
     if (!valid) return
+    // 后端 OrderFeedbackCreateRequest 要求 orderId + taskId + version(任务乐观锁)
+    if (feedbackForm.value.version == null) {
+      ElMessage.error('所选任务缺少乐观锁 version，请刷新详情后重试')
+      return
+    }
 
     feedbackDialog.value.loading = true
     try {
-      await submitFeedback(props.orderId, {
+      await submitFeedback({
+        orderId: props.orderId,
+        taskId: feedbackForm.value.taskId,
         version: feedbackForm.value.version,
         content: feedbackForm.value.content
       })

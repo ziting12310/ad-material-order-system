@@ -159,36 +159,38 @@ export function acceptTask(orderId, taskId, version) {
 
 /**
  * 查询订单设计稿版本列表
- * GET /api/v1/orders/{orderId}/versions
+ * GET /api/v1/design-versions?orderId={orderId}
  */
 export function listDesignVersions(orderId) {
-    return request.get(`/orders/${orderId}/versions`, { silent: true })
+    return request.get('/design-versions', { params: { orderId }, silent: true })
 }
 
 /**
- * 上传设计稿新版本
- * POST /api/v1/orders/{orderId}/versions
+ * 上传设计稿新版本（单文件）
+ * POST /api/v1/design-versions
+ * body: { orderId, taskId, fileId, fileName, fileSize, fileType, versionNote, version(任务乐观锁) }
  */
-export function uploadDesignVersion(orderId, data) {
-    return request.post(`/orders/${orderId}/versions`, data)
+export function uploadDesignVersion(data) {
+    return request.post('/design-versions', data)
 }
 
 // ==================== 修改意见 ====================
 
 /**
  * 查询修改意见列表
- * GET /api/v1/orders/{orderId}/feedbacks
+ * GET /api/v1/order-feedbacks?orderId={orderId}
  */
 export function listFeedbacks(orderId) {
-    return request.get(`/orders/${orderId}/feedbacks`, { silent: true })
+    return request.get('/order-feedbacks', { params: { orderId }, silent: true })
 }
 
 /**
  * 提交修改意见
- * POST /api/v1/orders/{orderId}/feedbacks
+ * POST /api/v1/order-feedbacks
+ * body: { orderId, taskId, content, version(任务乐观锁) }
  */
-export function submitFeedback(orderId, data) {
-    return request.post(`/orders/${orderId}/feedbacks`, data)
+export function submitFeedback(data) {
+    return request.post('/order-feedbacks', data)
 }
 
 // ==================== 参考文件 ====================

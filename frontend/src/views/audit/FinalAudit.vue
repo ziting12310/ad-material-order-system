@@ -875,13 +875,18 @@ function openApprove(row) {
 async function handleApprove() {
   const row = approveDialog.row
   if (!row) return
+  // 行数据来自 /audit/pending（OrderTaskVO），自带乐观锁 version
+  if (row.version == null) {
+    ElMessage.error('当前行缺少乐观锁 version，请刷新列表后重试')
+    return
+  }
 
   approveDialog.loading = true
   try {
-    // 任务级定稿（预留，当前走任务级接口路径，后端暂未实现的话会 fallback 到订单级）
+    // 任务级定稿：body 必须携带任务乐观锁 version
     const orderId = row.orderId || row.id
     const taskId = row.id
-    await approveTask(orderId, taskId, { remark: approveForm.remark })
+    await approveTask(orderId, taskId, { remark: approveForm.remark, version: row.version })
     ElMessage.success('定稿成功')
     approveDialog.visible = false
     // 刷新列表和统计
@@ -924,13 +929,18 @@ async function handleReject() {
     if (!valid) return
     const row = rejectDialog.row
     if (!row) return
+    // 行数据来自 /audit/pending（OrderTaskVO），自带乐观锁 version
+    if (row.version == null) {
+      ElMessage.error('当前行缺少乐观锁 version，请刷新列表后重试')
+      return
+    }
 
     rejectDialog.loading = true
     try {
-      // 任务级驳回（预留，当前走任务级接口路径）
+      // 任务级驳回：后端字段为 rejectNote，body 必须携带任务乐观锁 version
       const orderId = row.orderId || row.id
       const taskId = row.id
-      await rejectTask(orderId, taskId, { rejectRemark: rejectForm.rejectRemark })
+      await rejectTask(orderId, taskId, { rejectNote: rejectForm.rejectRemark, version: row.version })
       ElMessage.success('已驳回')
       rejectDialog.visible = false
       // 刷新列表和统计
