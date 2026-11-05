@@ -66,14 +66,20 @@ public class ArchiveController {
     }
 
     /**
-     * 归档订单数量统计
+     * 归档订单数量统计（与列表接口完全相同的筛选逻辑）
      * GET /api/v1/archive/count
      */
     @GetMapping("/count")
     @Operation(summary = "归档订单数量统计")
-    public ResultVO<Long> countArchived(HttpServletRequest request) {
+    public ResultVO<Long> countArchived(
+            @RequestParam(required = false) String materialType,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String deliveredDateFrom,
+            @RequestParam(required = false) String deliveredDateTo,
+            HttpServletRequest request) {
         Long userId = UserContext.getUserId();
         String role = UserContext.getRole();
-        return ResultVO.success(archiveService.countArchived(userId, role));
+        return ResultVO.success(archiveService.countArchived(
+                userId, role, materialType, keyword, deliveredDateFrom, deliveredDateTo));
     }
 }

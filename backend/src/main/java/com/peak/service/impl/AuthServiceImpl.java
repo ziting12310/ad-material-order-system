@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.peak.common.constants.ErrorCode;
 import com.peak.common.enums.UserRole;
 import com.peak.config.security.TokenBlacklist;
+import com.peak.dto.ChangePasswordRequest;
 import com.peak.dto.LoginRequest;
 import com.peak.dto.RegisterRequest;
 import com.peak.entity.User;
@@ -162,6 +163,27 @@ public class AuthServiceImpl implements AuthService {
             // Token 本身已失效，无需加入黑名单
             log.debug("登出时 Token 已失效：{}", e.getMessage());
         }
+    }
+
+    @Override
+    public void changePassword(Long userId, ChangePasswordRequest dto) {
+        // ① 查用户
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND, "用户不存在");
+        }
+
+        // ② 原密码 BCrypt 校验
+        if (!passwordUtil.matches(dto.getOldPassword(), user.getPasswordHash())) {
+            throw new BusinessException(ErrorCode.LOGIN_FAILED, "原密码错误");
+        }
+
+        // ③ 新密码 BCrypt 加密 + 更新
+        user.setPasswordHash(passwordUtil.encrypt(dto.getNewPassword()));
+        user.setUpdatedAt(java.time.LocalDateTime.now());
+        userMapper.updateById(user);
+
+        log.info("用户修改密码成功：userId={}", userId);
     }
 
     // ---------- 私有辅助方法 ----------

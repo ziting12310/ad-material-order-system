@@ -1,5 +1,6 @@
 package com.peak.service;
 
+import com.peak.dto.ChangePasswordRequest;
 import com.peak.dto.LoginRequest;
 import com.peak.dto.RegisterRequest;
 import com.peak.vo.LoginResponseVO;
@@ -44,4 +45,14 @@ public interface AuthService {
      * @param token 不带 Bearer 前缀的 JWT；为空或已失效时静默忽略
      */
     void logout(String token);
+
+    /**
+     * 自助修改密码（需登录）
+     * <p>先 BCrypt 校验原密码，通过后加密新密码更新到 DB。</p>
+     *
+     * @param userId 当前登录用户 ID
+     * @param dto 修改密码请求（oldPassword / newPassword）
+     * @throws com.peak.exception.BusinessException 原密码错误 / 用户不存在
+     */
+    void changePassword(Long userId, ChangePasswordRequest dto);
 }

@@ -17,6 +17,12 @@ public class OperationLogVO {
     @Schema(description = "任务编号", example = "T-001")
     private String taskNo;
 
+    @Schema(description = "订单ID")
+    private Long orderId;
+
+    @Schema(description = "订单编号", example = "ORD-2024-001")
+    private String orderNo;
+
     @Schema(description = "操作类型", example = "TASK_APPROVE")
     private String operationType;
 

@@ -269,7 +269,7 @@
             </el-form>
           </div>
 
-          <!-- 归档表格 -->
+          <!-- 已定稿（原归档）表格：改用 listApprovedTasks —— 与卡片数字同一口径 -->
           <el-table
             v-loading="archiveLoading"
             :data="archiveList"
@@ -278,31 +278,48 @@
             :header-cell-style="headerCellStyle"
             class="archive-table"
           >
-            <el-table-column prop="orderNo" label="订单号" width="170">
+            <el-table-column prop="taskNo" label="任务编号" width="150">
               <template #default="{ row }">
-                <span class="mono-text">{{ row.orderNo }}</span>
+                <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="所属订单" width="160">
+              <template #default="{ row }">
+                <span class="order-no-text">{{ row.orderNo || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="customerName" label="公司名称" min-width="140" />
-            <el-table-column label="物料数量" width="100" align="center">
+            <el-table-column label="物料类型" width="100" align="center">
               <template #default="{ row }">
-                {{ (row.tasks && row.tasks.length) || row.taskCount || 0 }} 项
+                {{ getMaterialLabel(row.materialType) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="quantity" label="数量" width="80" align="right" />
+            <el-table-column prop="specification" label="规格" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.specification || '—' }}
               </template>
             </el-table-column>
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
-                <el-tag type="success" effect="light" round size="small">已归档</el-tag>
+                <el-tag
+                  :type="row.status === 'DELIVERED' ? 'success' : 'primary'"
+                  effect="light"
+                  round
+                  size="small"
+                >
+                  {{ row.status === 'DELIVERED' ? '已交付' : '已定稿' }}
+                </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="deliveryDate" label="交付日期" width="120" />
-            <el-table-column prop="archivedAt" label="归档时间" width="160">
+            <el-table-column prop="deadline" label="截止日期" width="120">
               <template #default="{ row }">
-                {{ formatDateTime(row.archivedAt) }}
+                {{ row.deadline || '—' }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="100" fixed="right" align="center">
+            <el-table-column label="操作" width="120" fixed="right" align="center">
               <template #default="{ row }">
-                <el-button type="primary" link size="small" @click="handleViewArchive(row)">
+                <el-button type="primary" link size="small" @click="handleViewDetail(row)">
                   查看详情
                 </el-button>
               </template>
@@ -640,6 +657,12 @@
         />
       </div>
     </el-drawer>
+
+    <!-- 订单详情抽屉（复用 OrderDetailDrawer，所有 tab 的"查看详情"都走这里） -->
+    <OrderDetailDrawer
+      v-model="detailDrawerVisible"
+      :order-id="detailOrderId"
+    />
   </div>
 </template>
 
@@ -658,12 +681,12 @@ import {
   listApprovedTasks,
   listRejectedTasks,
   listMyAuditLogs,
-  listArchivedOrders,
   getArchivedOrder,
   getAuditStats,
   approveTask,
   rejectTask
 } from '@/api/audit'
+import OrderDetailDrawer from '@/views/order/OrderDetailDrawer.vue'
 import {
   MATERIAL_OPTIONS,
   getMaterialLabel,
@@ -677,6 +700,10 @@ const userStore = useUserStore()
 const isAM = computed(() => userStore.userInfo?.role === 'AM')
 const isBL = computed(() => userStore.userInfo?.role === 'BL')
 const isDS = computed(() => userStore.userInfo?.role === 'DS')
+
+// 订单详情抽屉（查看详情按钮复用的组件）
+const detailDrawerVisible = ref(false)
+const detailOrderId = ref(null)
 
 // 页面标题
 const pageTitle = computed(() => {
@@ -897,12 +924,14 @@ async function fetchArchiveList(isLoadMore = false) {
     }
     if (archiveFilters.keyword) params.keyword = archiveFilters.keyword
     if (archiveFilters.materialType) params.materialType = archiveFilters.materialType
+    // 交付日期区间 → 拆分传给后端（两个独立参数）
     if (archiveFilters.deliveryDateRange && archiveFilters.deliveryDateRange.length === 2) {
       params.deliveryDateFrom = archiveFilters.deliveryDateRange[0]
       params.deliveryDateTo = archiveFilters.deliveryDateRange[1]
     }
 
-    const res = await listArchivedOrders(params)
+    // 已定稿列表：listApprovedTasks —— 与卡片数字 getAuditStats.approvedCount 共用同一套 queryWrapper
+    const res = await listApprovedTasks(params)
 
     if (isLoadMore) {
       if (res.list && res.list.length > 0) {
@@ -1154,9 +1183,16 @@ async function handleReject() {
   })
 }
 
-// ========== 查看详情 ==========
+// ========== 查看详情（复用订单详情抽屉） ==========
 function handleViewDetail(row) {
-  ElMessage.info(`查看任务详情：${row.taskNo || row.id}`)
+  // row 来自 OrderTaskVO，含 orderId；兜底：row.id 是任务 id，需先查详情再取 orderId
+  const orderId = row?.orderId
+  if (!orderId) {
+    ElMessage.error('当前行缺少订单ID，无法查看详情')
+    return
+  }
+  detailOrderId.value = orderId
+  detailDrawerVisible.value = true
 }
 
 // ---------- 工具函数 ----------

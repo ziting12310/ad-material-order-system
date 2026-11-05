@@ -1,6 +1,7 @@
 package com.peak.controller;
 
 import com.peak.common.context.UserContext;
+import com.peak.dto.ChangePasswordRequest;
 import com.peak.dto.LoginRequest;
 import com.peak.dto.RegisterRequest;
 import com.peak.service.AuthService;
@@ -14,6 +15,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -111,5 +113,19 @@ public class AuthController {
         }
         authService.logout(token);
         return ResultVO.success(null);
+    }
+
+    /**
+     * 自助修改密码
+     * PUT /api/v1/auth/password
+     *
+     * <p>需要登录。先 BCrypt 校验原密码，通过后加密新密码更新。
+     * Controller 从 UserContext 取当前 userId，前端无需传。</p>
+     */
+    @PutMapping("/password")
+    @Operation(summary = "修改密码", description = "校验原密码后更新为新密码（BCrypt 加密）")
+    public ResultVO<Void> changePassword(@Valid @RequestBody ChangePasswordRequest dto) {
+        authService.changePassword(UserContext.getUserId(), dto);
+        return ResultVO.success("密码修改成功", null);
     }
 }
