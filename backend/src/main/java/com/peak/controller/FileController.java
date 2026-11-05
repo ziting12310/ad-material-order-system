@@ -64,7 +64,7 @@ public class FileController {
     }
 
     @GetMapping("/{fileId}")
-    @Operation(summary = "读取文件（需要 JWT，按数据范围校验）")
+    @Operation(summary = "读取文件（无 Token 可匿名预览已绑定订单/任务的文件；带 Token 仍按数据范围校验）")
     public ResponseEntity<Resource> download(@PathVariable String fileId, HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         String userRole = (String) request.getAttribute("userRole");

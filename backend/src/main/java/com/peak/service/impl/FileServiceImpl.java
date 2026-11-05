@@ -40,7 +40,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * 本地文件系统文件服务实现（模拟 OSS）。
@@ -61,9 +60,6 @@ public class FileServiceImpl implements FileService {
 
     private static final long MAX_REFERENCE_SIZE = 5L * 1024 * 1024;
     private static final long MAX_DESIGN_SIZE = 100L * 1024 * 1024;
-
-    /** 只允许服务端生成的 UUID + 扩展名，阻断路径穿越 */
-    private static final Pattern FILE_ID_PATTERN = Pattern.compile("^[0-9a-f]{32}\\.[a-z0-9]{2,5}$");
 
     private final OrderReferenceFileMapper orderReferenceFileMapper;
     private final DesignVersionMapper designVersionMapper;
@@ -209,6 +205,13 @@ public class FileServiceImpl implements FileService {
             }
             orderId = ref.getOrderId();
             taskId = ref.getTaskId();
+        }
+
+        // 匿名预览（浏览器直接打开 URL，无 Authorization）：只放行已绑定订单/任务的文件；
+        // 未绑定业务记录的文件仍然仅 BL 可读（见上方 ref == null 分支）。
+        // 携带令牌访问时 userId/userRole 不为空，继续走下方数据范围校验。
+        if (userId == null && userRole == null) {
+            return new FileSystemResource(path);
         }
 
         checkFileScope(orderId, taskId, userId, userRole);
@@ -370,7 +373,9 @@ public class FileServiceImpl implements FileService {
     }
 
     private void validateFileId(String fileId) {
-        if (fileId == null || !FILE_ID_PATTERN.matcher(fileId).matches()) {
+        // 仅保留非空校验（原文件 ID 正则已移除）；
+        // 路径穿越仍由 filePath / metaPath 的 normalize + startsWith(root) 兜底拦截。
+        if (fileId == null || fileId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAM_VALIDATION_ERROR, "非法文件 ID");
         }
     }
