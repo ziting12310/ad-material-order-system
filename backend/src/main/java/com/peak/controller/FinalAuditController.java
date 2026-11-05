@@ -1,5 +1,6 @@
 package com.peak.controller;
 
+import com.peak.common.context.UserContext;
 import com.peak.service.FinalAuditService;
 import com.peak.vo.AuditStatsVO;
 import com.peak.vo.CursorPage;
@@ -48,8 +49,8 @@ public class FinalAuditController {
             @Parameter(description = "物料类型过滤") @RequestParam(required = false) String materialType,
             @Parameter(description = "关键字（任务编号/规格）") @RequestParam(required = false) String keyword,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(finalAuditService.listPendingTasks(
                 userId, role, cursor, limit, materialType, keyword));
     }
@@ -90,8 +91,8 @@ public class FinalAuditController {
     public ResultVO<List<OperationLogVO>> listMyAuditLogs(
             @Parameter(description = "数量，默认20，最大100") @RequestParam(defaultValue = "20") int limit,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(finalAuditService.listMyAuditLogs(userId, role, limit));
     }
 
@@ -104,8 +105,8 @@ public class FinalAuditController {
     public ResultVO<List<OperationLogVO>> listAuditLogsByOrder(
             @PathVariable Long orderId,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(finalAuditService.listAuditLogsByOrder(orderId, userId, role));
     }
 }

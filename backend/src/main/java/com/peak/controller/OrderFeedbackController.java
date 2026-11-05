@@ -2,6 +2,7 @@ package com.peak.controller;
 
 import com.peak.common.annotation.RequireRole;
 import com.peak.common.enums.UserRole;
+import com.peak.common.context.UserContext;
 import com.peak.dto.OrderFeedbackCreateRequest;
 import com.peak.service.OrderFeedbackService;
 import com.peak.vo.OrderFeedbackResponseVO;
@@ -57,7 +58,7 @@ public class OrderFeedbackController {
     public ResultVO<OrderFeedbackResponseVO> submitFeedback(
             @Valid @RequestBody OrderFeedbackCreateRequest dto,
             HttpServletRequest request) {
-        Long submitterId = (Long) request.getAttribute("userId");
+        Long submitterId = UserContext.getUserId();
         return ResultVO.success(orderFeedbackService.submitFeedback(dto, submitterId));
     }
 
@@ -71,8 +72,8 @@ public class OrderFeedbackController {
             @RequestParam(required = false) Long orderId,
             @RequestParam(required = false) Long taskId,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String userRole = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String userRole = UserContext.getRole();
         return ResultVO.success(orderFeedbackService.listFeedbacks(orderId, taskId, userId, userRole));
     }
 }

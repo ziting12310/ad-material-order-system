@@ -1,5 +1,6 @@
 package com.peak.controller;
 
+import com.peak.common.context.UserContext;
 import com.peak.service.ArchiveService;
 import com.peak.vo.CursorPage;
 import com.peak.vo.OrderDetailVO;
@@ -45,8 +46,8 @@ public class ArchiveController {
             @Parameter(description = "交付日期起（YYYY-MM-DD）") @RequestParam(required = false) String deliveredDateFrom,
             @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveredDateTo,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(archiveService.listArchivedOrders(
                 userId, role, cursor, limit, materialType, keyword, deliveredDateFrom, deliveredDateTo));
     }
@@ -59,8 +60,8 @@ public class ArchiveController {
     @Operation(summary = "归档订单详情（只读）")
     public ResultVO<OrderDetailVO> getArchivedOrder(@PathVariable Long id,
                                                      HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(archiveService.getArchivedOrderDetail(id, userId, role));
     }
 
@@ -71,8 +72,8 @@ public class ArchiveController {
     @GetMapping("/count")
     @Operation(summary = "归档订单数量统计")
     public ResultVO<Long> countArchived(HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String role = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String role = UserContext.getRole();
         return ResultVO.success(archiveService.countArchived(userId, role));
     }
 }

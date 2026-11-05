@@ -2,6 +2,7 @@ package com.peak.controller;
 
 import com.peak.common.annotation.RequireRole;
 import com.peak.common.enums.UserRole;
+import com.peak.common.context.UserContext;
 import com.peak.dto.DesignVersionCreateRequest;
 import com.peak.service.DesignVersionService;
 import com.peak.vo.DesignVersionDiffVO;
@@ -65,7 +66,7 @@ public class DesignVersionController {
     public ResultVO<DesignVersionResponseVO> uploadDesignVersion(
             @Valid @RequestBody DesignVersionCreateRequest dto,
             HttpServletRequest request) {
-        Long uploaderId = (Long) request.getAttribute("userId");
+        Long uploaderId = UserContext.getUserId();
         return ResultVO.success(designVersionService.uploadDesignVersion(dto, uploaderId));
     }
 
@@ -79,8 +80,8 @@ public class DesignVersionController {
             @RequestParam(required = false) Long orderId,
             @RequestParam(required = false) Long taskId,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String userRole = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String userRole = UserContext.getRole();
         return ResultVO.success(designVersionService.listVersions(orderId, taskId, userId, userRole));
     }
 
@@ -96,8 +97,8 @@ public class DesignVersionController {
             @RequestParam Integer v1,
             @RequestParam Integer v2,
             HttpServletRequest request) {
-        Long userId = (Long) request.getAttribute("userId");
-        String userRole = (String) request.getAttribute("userRole");
+        Long userId = UserContext.getUserId();
+        String userRole = UserContext.getRole();
         return ResultVO.success(designVersionService.diffVersions(orderId, taskId, v1, v2, userId, userRole));
     }
 }
