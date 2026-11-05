@@ -3,6 +3,7 @@
  *
  * 路由结构：
  *  /login                  → 登录页
+ *  /register               → 注册页
  *  /                       → 重定向 /dashboard
  *  /dashboard              → 工作台
  *  /orders                 → 订单列表
@@ -22,6 +23,12 @@ const routes = [
     name: 'Login',
     component: () => import('@/views/Login.vue'),
     meta: { title: '登录', noAuth: true }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/Register.vue'),
+    meta: { title: '注册', noAuth: true }
   },
   {
     path: '/',
@@ -76,7 +83,7 @@ const router = createRouter({
 })
 
 // 白名单：不需要登录的页面
-const WHITE_LIST = ['/login']
+const WHITE_LIST = ['/login', '/register']
 
 // ========== 前置守卫：登录校验 + 角色权限 ==========
 router.beforeEach(async (to, from, next) => {

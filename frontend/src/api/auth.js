@@ -31,3 +31,13 @@ export function getUserInfo() {
 export function changePassword(data) {
     return request.put('/auth/password', data)
 }
+
+/**
+ * 用户注册
+ * POST /api/v1/auth/register
+ * @param {Object} data - { username, password, name, phone }
+ * @returns {Object} { id, username, name, role, phone }
+ */
+export function register(data) {
+    return request.post('/auth/register', data)
+}

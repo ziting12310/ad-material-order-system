@@ -61,6 +61,11 @@
             <li>设计人员：<code>ds_demo / 123456</code></li>
           </ul>
         </div>
+
+        <div class="register-link">
+          还没有账号？
+          <router-link to="/register">立即注册</router-link>
+        </div>
       </div>
     </div>
   </div>
@@ -275,5 +280,24 @@ async function handleLogin() {
   border-radius: 4px;
   font-family: 'SF Mono', Monaco, monospace;
   color: var(--primary-color);
+}
+
+.register-link {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-100);
+  font-size: 13px;
+  color: var(--gray-500);
+  text-align: center;
+}
+
+.register-link a {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.register-link a:hover {
+  text-decoration: underline;
 }
 </style>
