@@ -42,6 +42,9 @@ public class OrderTask {
 
     private LocalDateTime assignedAt;
 
+    /** 分派备注（分派时填写，对应 order_tasks.assign_remark） */
+    private String assignRemark;
+
     private Long approvedBy;
 
     private LocalDateTime approvedAt;

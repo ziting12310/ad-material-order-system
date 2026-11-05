@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -30,15 +31,17 @@ public class UserController {
     private final UserService userService;
 
     /**
-     * GET /api/v1/users
+     * GET /api/v1/users[?role=DS]
      *
-     * <p>返回全部未删除用户，不参与分页；字段：id、username、name、role、phone。</p>
+     * <p>返回未删除用户，不参与分页；字段：id、username、name、role、phone。</p>
+     * <p>role 选填：分派下拉传 role=DS 只看设计人员；不传返回全部用户。</p>
      * <p>角色限制：AM（客户经理）/ BL（业务主管）可查；DS（设计人员）返回 403。</p>
      */
     @GetMapping
     @RequireRole({UserRole.AM, UserRole.BL})
-    @Operation(summary = "查询所有未删除用户", description = "仅 AM / BL 角色可调用，供分派下拉使用")
-    public ResultVO<List<UserListItemVO>> listUsers() {
-        return ResultVO.success(userService.listUsers());
+    @Operation(summary = "查询未删除用户（支持按角色过滤）", description = "仅 AM / BL 可调用；role=DS 用于分派下拉")
+    public ResultVO<List<UserListItemVO>> listUsers(
+            @RequestParam(value = "role", required = false) String role) {
+        return ResultVO.success(userService.listUsers(role));
     }
 }

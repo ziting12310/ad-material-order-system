@@ -50,14 +50,14 @@ public class JwtInterceptor implements HandlerInterceptor {
         // ② 取 Authorization Header
         String authHeader = request.getHeader(headerName);
         if (authHeader == null || !authHeader.startsWith(prefix)) {
-            write401(response, ErrorCode.UNAUTHORIZED, "请先登录");
+            write401(request, response, ErrorCode.UNAUTHORIZED, "请先登录");
             return false;
         }
         String token = authHeader.substring(prefix.length()).trim();
 
         // ②.5 已登出的 Token 立即失效
         if (tokenBlacklist.contains(token)) {
-            write401(response, ErrorCode.TOKEN_INVALID, "登录状态已失效，请重新登录");
+            write401(request, response, ErrorCode.TOKEN_INVALID, "登录状态已失效，请重新登录");
             return false;
         }
 
@@ -80,11 +80,11 @@ public class JwtInterceptor implements HandlerInterceptor {
             return true;
         } catch (ExpiredJwtException e) {
             log.warn("JWT 过期: {}", e.getMessage());
-            write401(response, ErrorCode.TOKEN_EXPIRED, "登录已过期，请重新登录");
+            write401(request, response, ErrorCode.TOKEN_EXPIRED, "登录已过期，请重新登录");
             return false;
         } catch (Exception e) {
             log.warn("JWT 解析失败: {}", e.getMessage());
-            write401(response, ErrorCode.TOKEN_INVALID, "无效的登录凭证");
+            write401(request, response, ErrorCode.TOKEN_INVALID, "无效的登录凭证");
             return false;
         }
     }
@@ -97,7 +97,11 @@ public class JwtInterceptor implements HandlerInterceptor {
     }
 
     /** 统一写 401 响应 */
-    private void write401(HttpServletResponse response, String code, String message) {
+    private void write401(HttpServletRequest request, HttpServletResponse response,
+                          String code, String message) {
+        // 打日志便于定位：401 来自拦截器而非切面/业务层（响应体本身不带服务端日志）
+        log.warn("JWT 拦截: {} {} -> 401 {} ({})",
+                request.getMethod(), request.getRequestURI(), code, message);
         try {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");

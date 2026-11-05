@@ -359,6 +359,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         task.setDesignerId(dto.getDesignerId());
         task.setAssignedBy(operatorId);
         task.setAssignedAt(LocalDateTime.now());
+        task.setAssignRemark(dto.getAssignRemark());   // 分派备注落库（order_tasks.assign_remark）
 
         int rows = orderTaskMapper.updateById(task);
         if (rows == 0) {
@@ -721,6 +722,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         vo.setStatusName(s != null ? s.getLabel() : task.getStatus());
         vo.setDesignerId(task.getDesignerId());
         vo.setDesignerName(designerName);
+        vo.setAssignRemark(task.getAssignRemark());
         vo.setApprovedAt(task.getApprovedAt());
         vo.setFinalVersionNo(finalVersionNo);
         vo.setSortOrder(task.getSortOrder());

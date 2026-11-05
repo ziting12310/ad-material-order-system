@@ -7,6 +7,10 @@ import java.util.List;
 /** 用户查询服务 — A 模块 */
 public interface UserService {
 
-    /** 查询所有未删除用户，按 id 升序 */
-    List<UserListItemVO> listUsers();
+    /**
+     * 查询未删除用户，按 id 升序
+     *
+     * @param role 角色过滤（AM / BL / DS）；为空时返回全部用户
+     */
+    List<UserListItemVO> listUsers(String role);
 }
