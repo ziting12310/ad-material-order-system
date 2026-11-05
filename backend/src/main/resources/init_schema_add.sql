@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS `order_tasks` (
     `designer_id`     BIGINT       DEFAULT NULL                       COMMENT '设计负责人ID（未分派时为NULL）',
     `assigned_by`     BIGINT       DEFAULT NULL                       COMMENT '分派人ID（业务负责人）',
     `assigned_at`     DATETIME     DEFAULT NULL                       COMMENT '分派时间',
+    `assign_remark`   VARCHAR(200) DEFAULT NULL                       COMMENT '分派备注（分派时填写）',
     `approved_by`     BIGINT       DEFAULT NULL                       COMMENT '定稿人ID（业务负责人）',
     `approved_at`     DATETIME     DEFAULT NULL                       COMMENT '定稿时间',
     `final_version_id` BIGINT      DEFAULT NULL                       COMMENT '定稿版本ID（design_versions.id）',

@@ -17,10 +17,15 @@ public class UserServiceImpl implements UserService {
     private final UserMapper userMapper;
 
     @Override
-    public List<UserListItemVO> listUsers() {
+    public List<UserListItemVO> listUsers(String role) {
         // @TableLogic 会自动过滤 is_deleted = 1
-        List<User> users = userMapper.selectList(
-                new LambdaQueryWrapper<User>().orderByAsc(User::getId));
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
+                .orderByAsc(User::getId);
+        // 分派下拉传 role=DS，仅返回设计人员；不传则返回全部
+        if (role != null && !role.isBlank()) {
+            wrapper.eq(User::getRole, role.trim().toUpperCase());
+        }
+        List<User> users = userMapper.selectList(wrapper);
 
         return users.stream()
                 .map(this::toListItemVO)

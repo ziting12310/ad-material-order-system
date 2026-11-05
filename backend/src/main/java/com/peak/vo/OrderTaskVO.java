@@ -48,6 +48,9 @@ public class OrderTaskVO {
     @Schema(description = "设计人员姓名")
     private String designerName;
 
+    @Schema(description = "分派备注")
+    private String assignRemark;
+
     @Schema(description = "定稿人姓名")
     private String approvedByName;
 

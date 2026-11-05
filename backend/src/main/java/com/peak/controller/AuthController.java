@@ -53,7 +53,7 @@ public class AuthController {
      * }
      * </pre></p>
      */
-    @PostMapping("/login")
+    @PostMapping({"/login", "/login/"})
     @Operation(summary = "用户登录", description = "账号密码登录，返回 JWT Token + 用户信息")
     public ResultVO<LoginResponseVO> login(@Valid @RequestBody LoginRequest dto) {
         // Controller 仅做三件事：接收（@Valid @RequestBody）→ 调用 Service → 返回 ResultVO
@@ -68,7 +68,7 @@ public class AuthController {
      * <p>匿名可访问（WebMvcConfig 放行），注册用户固定为 DS 角色，成功后返回脱敏用户信息，不返回密码。
      * <pre>请求：{"username":"test_user","password":"123456","name":"测试用户","phone":"13800138000"}</pre></p>
      */
-    @PostMapping("/register")
+    @PostMapping({"/register", "/register/"})
     @Operation(summary = "用户注册", description = "自助注册账号（固定 DS 角色），密码 bcrypt 加密存储")
     public ResultVO<UserInfoVO> register(@Valid @RequestBody RegisterRequest dto) {
         return ResultVO.success("注册成功", authService.register(dto));
