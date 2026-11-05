@@ -118,6 +118,7 @@ public class FinalAuditServiceImpl implements FinalAuditService {
         List<OrderTaskVO> voList = page.stream().map(t -> {
             OrderTaskVO vo = new OrderTaskVO();
             vo.setId(t.getId());
+            vo.setOrderId(t.getOrderId());
             vo.setOrderNo(orderNoMap.get(t.getOrderId()));
             vo.setCustomerName(customerNameMap.get(t.getOrderId()));
             vo.setTaskNo(t.getTaskNo());
@@ -175,17 +176,18 @@ public class FinalAuditServiceImpl implements FinalAuditService {
     }
 
     // ========================================================================
-    // 【1.5】已定稿任务列表 & 数量（共用同一套 queryWrapper）
+    // 【1.5】已定稿任务列表 & 数量（共用同一套 queryWrapper，确保 count 与 list 严格对齐）
     // ========================================================================
     @Override
     public CursorPage<OrderTaskVO> listApprovedTasks(Long userId, String userRole,
                                                      String cursor, int limit,
-                                                     String materialType, String keyword) {
+                                                     String materialType, String keyword,
+                                                     String deliveryDateFrom, String deliveryDateTo) {
         long lastId = decodeCursor(cursor);
         int effectiveLimit = Math.min(Math.max(limit, 1), 100);
 
         LambdaQueryWrapper<OrderTask> wrapper = buildApprovedTaskWrapper(userId, userRole,
-                materialType, keyword);
+                materialType, keyword, deliveryDateFrom, deliveryDateTo);
         wrapper.gt(OrderTask::getId, lastId);
         wrapper.orderByDesc(OrderTask::getUpdatedAt);
         wrapper.orderByDesc(OrderTask::getId);
@@ -201,32 +203,36 @@ public class FinalAuditServiceImpl implements FinalAuditService {
 
     @Override
     public long countApprovedTasks(Long userId, String userRole,
-                                   String materialType, String keyword) {
-        // 与 listApprovedTasks 共用同一套 queryWrapper，确保数量与列表数据严格对齐
+                                   String materialType, String keyword,
+                                   String deliveryDateFrom, String deliveryDateTo) {
+        // 与 listApprovedTasks 共用 buildApprovedTaskWrapper —— 完全相同的查询条件对象，仅去掉分页 limit
         LambdaQueryWrapper<OrderTask> wrapper = buildApprovedTaskWrapper(userId, userRole,
-                materialType, keyword);
+                materialType, keyword, deliveryDateFrom, deliveryDateTo);
         Long count = orderTaskMapper.selectCount(wrapper);
         return count != null ? count : 0L;
     }
 
-    /** 已定稿任务共享 queryWrapper — 列表和数量统计完全一致 */
+    /** 已定稿任务共享 queryWrapper — count 和 list 调用的是同一个对象，口径严格一致 */
     private LambdaQueryWrapper<OrderTask> buildApprovedTaskWrapper(Long userId, String userRole,
-                                                                   String materialType, String keyword) {
+                                                                   String materialType, String keyword,
+                                                                   String deliveryDateFrom, String deliveryDateTo) {
         LambdaQueryWrapper<OrderTask> wrapper = new LambdaQueryWrapper<>();
+
+        // ① 状态：APPROVED + DELIVERED
         wrapper.in(OrderTask::getStatus,
                 OrderStatus.APPROVED.getCode(), OrderStatus.DELIVERED.getCode());
 
-        // 业务负责人归属过滤
+        // ② 业务负责人归属过滤（BL 全量；AM 限自己创建的订单）
         List<Long> scopeOrderIds = resolveScopeOrderIds(userId, userRole);
         if (scopeOrderIds != null) {
             wrapper.in(OrderTask::getOrderId, scopeOrderIds);
         }
 
-        // 排除作废订单下的任务
+        // ③ 排除作废订单下的任务
         wrapper.apply("order_id NOT IN (SELECT id FROM orders WHERE status = {0})",
                 OrderStatus.CANCELLED.getCode());
 
-        // 筛选条件
+        // ④ 筛选条件
         if (materialType != null && !materialType.isBlank()) {
             wrapper.eq(OrderTask::getMaterialType, materialType);
         }
@@ -235,6 +241,14 @@ public class FinalAuditServiceImpl implements FinalAuditService {
             wrapper.and(w -> w.like(OrderTask::getTaskNo, safeKeyword)
                     .or().like(OrderTask::getSpecification, safeKeyword));
         }
+        // ⑤ 交付日期区间（通过 OrderTask.deadline 字段）
+        if (deliveryDateFrom != null && !deliveryDateFrom.isBlank()) {
+            wrapper.ge(OrderTask::getDeadline, deliveryDateFrom);
+        }
+        if (deliveryDateTo != null && !deliveryDateTo.isBlank()) {
+            wrapper.le(OrderTask::getDeadline, deliveryDateTo);
+        }
+
         return wrapper;
     }
 
@@ -452,6 +466,7 @@ public class FinalAuditServiceImpl implements FinalAuditService {
         List<OrderTaskVO> voList = page.stream().map(t -> {
             OrderTaskVO vo = new OrderTaskVO();
             vo.setId(t.getId());
+            vo.setOrderId(t.getOrderId());
             vo.setOrderNo(orderNoMap.get(t.getOrderId()));
             vo.setCustomerName(customerNameMap.get(t.getOrderId()));
             vo.setTaskNo(t.getTaskNo());
@@ -532,7 +547,7 @@ public class FinalAuditServiceImpl implements FinalAuditService {
         stats.setPendingCount(nullSafe(orderTaskMapper.selectCount(pending)));
 
         // 已定稿 — 与 countApprovedTasks 共用 buildApprovedTaskWrapper（排除 CANCELLED）
-        stats.setApprovedCount(countApprovedTasks(userId, userRole, null, null));
+        stats.setApprovedCount(countApprovedTasks(userId, userRole, null, null, null, null));
 
         // 驳回 — 与 countRejectedTasks 对齐：只算 TASK_REJECT 流水（不算 ORDER_REJECT）
         long rejected = countRejectedTasks(userId, userRole, null, null);
@@ -569,7 +584,7 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                         .last("LIMIT " + effectiveLimit)
         );
 
-        // 查 taskNo
+        // 查 taskNo + orderNo
         List<Long> taskIds = logs.stream()
                 .map(OrderOperationLog::getTaskId)
                 .filter(id -> id != null)
@@ -577,13 +592,20 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                 .toList();
         Map<Long, String> taskNoMap = new HashMap<>();
         if (!taskIds.isEmpty()) {
-            List<OrderTask> tasks = orderTaskMapper.selectBatchIds(taskIds);
-            for (OrderTask t : tasks) {
-                taskNoMap.put(t.getId(), t.getTaskNo());
-            }
+            orderTaskMapper.selectBatchIds(taskIds).forEach(t -> taskNoMap.put(t.getId(), t.getTaskNo()));
+        }
+        // orderId 直接从 OperationLog 取，批量查 orders 得 orderNo
+        List<Long> orderIds = logs.stream()
+                .map(OrderOperationLog::getOrderId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        Map<Long, String> orderNoMap = new HashMap<>();
+        if (!orderIds.isEmpty()) {
+            orderMapper.selectBatchIds(orderIds).forEach(o -> orderNoMap.put(o.getId(), o.getOrderNo()));
         }
 
-        return logs.stream().map(l -> buildLogVO(l, taskNoMap)).toList();
+        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap)).toList();
     }
 
     // ========================================================================
@@ -624,6 +646,7 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                         .orderByDesc(OrderOperationLog::getId)
         );
 
+        // 查 taskNo + orderNo
         List<Long> taskIds = logs.stream()
                 .map(OrderOperationLog::getTaskId)
                 .filter(id -> id != null)
@@ -631,24 +654,34 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                 .toList();
         Map<Long, String> taskNoMap = new HashMap<>();
         if (!taskIds.isEmpty()) {
-            List<OrderTask> tasks = orderTaskMapper.selectBatchIds(taskIds);
-            for (OrderTask t : tasks) {
-                taskNoMap.put(t.getId(), t.getTaskNo());
-            }
+            orderTaskMapper.selectBatchIds(taskIds).forEach(t -> taskNoMap.put(t.getId(), t.getTaskNo()));
+        }
+        List<Long> orderIds = logs.stream()
+                .map(OrderOperationLog::getOrderId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        Map<Long, String> orderNoMap = new HashMap<>();
+        if (!orderIds.isEmpty()) {
+            orderMapper.selectBatchIds(orderIds).forEach(o -> orderNoMap.put(o.getId(), o.getOrderNo()));
         }
 
-        return logs.stream().map(l -> buildLogVO(l, taskNoMap)).toList();
+        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap)).toList();
     }
 
     // ========================================================================
     //  私有辅助
     // ========================================================================
 
-    private OperationLogVO buildLogVO(OrderOperationLog log, Map<Long, String> taskNoMap) {
+    private OperationLogVO buildLogVO(OrderOperationLog log,
+                                       Map<Long, String> taskNoMap,
+                                       Map<Long, String> orderNoMap) {
         OperationLogVO vo = new OperationLogVO();
         vo.setId(log.getId());
         vo.setTaskId(log.getTaskId());
         vo.setTaskNo(taskNoMap.get(log.getTaskId()));
+        vo.setOrderId(log.getOrderId());
+        vo.setOrderNo(orderNoMap.get(log.getOrderId()));
         vo.setOperationType(log.getOperationType());
         OperationType ot = OperationType.of(log.getOperationType());
         vo.setOperationTypeName(ot != null ? ot.getLabel() : log.getOperationType());

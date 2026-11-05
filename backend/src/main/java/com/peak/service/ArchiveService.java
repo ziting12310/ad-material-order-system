@@ -25,6 +25,8 @@ public interface ArchiveService {
     /** 归档订单详情（只读，和订单详情一致但明确标记已归档） */
     OrderDetailVO getArchivedOrderDetail(Long orderId, Long userId, String userRole);
 
-    /** 归档订单数量统计（当前用户范围内） */
-    long countArchived(Long userId, String userRole);
+    /** 归档订单数量统计 — 与 listArchivedOrders 完全相同的筛选逻辑（共用同一套 query 条件） */
+    long countArchived(Long userId, String userRole,
+                       String materialType, String keyword,
+                       String deliveredDateFrom, String deliveredDateTo);
 }

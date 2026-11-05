@@ -81,15 +81,17 @@ public class FinalAuditController {
             @Parameter(description = "每页数量，默认20") @RequestParam(defaultValue = "20") int limit,
             @Parameter(description = "物料类型过滤") @RequestParam(required = false) String materialType,
             @Parameter(description = "关键字（任务编号/规格）") @RequestParam(required = false) String keyword,
+            @Parameter(description = "交付日期起 YYYY-MM-DD") @RequestParam(required = false) String deliveryDateFrom,
+            @Parameter(description = "交付日期止 YYYY-MM-DD") @RequestParam(required = false) String deliveryDateTo,
             HttpServletRequest request) {
         Long userId = UserContext.getUserId();
         String role = UserContext.getRole();
         return ResultVO.success(finalAuditService.listApprovedTasks(
-                userId, role, cursor, limit, materialType, keyword));
+                userId, role, cursor, limit, materialType, keyword, deliveryDateFrom, deliveryDateTo));
     }
 
     /**
-     * 已定稿任务数量
+     * 已定稿任务数量（与列表接口完全相同的查询条件）
      * GET /api/v1/audit/approved/count
      */
     @GetMapping("/approved/count")
@@ -97,10 +99,13 @@ public class FinalAuditController {
     public ResultVO<Long> countApprovedTasks(
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String deliveryDateFrom,
+            @RequestParam(required = false) String deliveryDateTo,
             HttpServletRequest request) {
         Long userId = UserContext.getUserId();
         String role = UserContext.getRole();
-        return ResultVO.success(finalAuditService.countApprovedTasks(userId, role, materialType, keyword));
+        return ResultVO.success(finalAuditService.countApprovedTasks(
+                userId, role, materialType, keyword, deliveryDateFrom, deliveryDateTo));
     }
 
     /**

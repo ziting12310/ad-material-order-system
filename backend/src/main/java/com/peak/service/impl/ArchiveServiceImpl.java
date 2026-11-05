@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.peak.common.constants.ErrorCode;
 import com.peak.common.enums.OrderStatus;
 import com.peak.common.enums.UserRole;
+import com.peak.common.enums.MaterialType;
 import com.peak.entity.Order;
 import com.peak.entity.OrderTask;
 import com.peak.exception.BusinessException;
@@ -20,17 +21,15 @@ import org.apache.commons.text.StringEscapeUtils;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
- * 归档服务实现 — C 模块（归档域）
+ * 归档查询服务 — 独立于定稿审核模块
  *
- * <p>所有归档查询都加了 archived=1 条件，确保只返回已归档数据。
- * 归档订单详情直接复用 OrderService.getOrderDetail，但额外校验归档状态。
+ * <p>数据来源：从已定稿（APPROVED）的物料数据向上关联订单/公司，
+ *  按 orderId + customerName 维度聚合去重，保证所有已定稿订单都出现在归档列表。
+ * <p>筛选条件（物料类型、关键字、交付日期）作用在底层已定稿物料上，聚合去重后输出。
+ * <p>与定稿审核模块（FinalAuditService）解耦，不影响其物料粒度展示逻辑。
  */
 @Slf4j
 @Service
@@ -42,7 +41,7 @@ public class ArchiveServiceImpl implements ArchiveService {
     private final OrderService orderService;
 
     // ========================================================================
-    // 【1】已归档订单列表
+    // 【1】归档查询：已定稿订单列表（按订单+公司聚合去重）
     // ========================================================================
     @Override
     public CursorPage<OrderListItemVO> listArchivedOrders(Long userId, String userRole,
@@ -52,41 +51,39 @@ public class ArchiveServiceImpl implements ArchiveService {
         long lastId = decodeCursor(cursor);
         int effectiveLimit = Math.min(Math.max(limit, 1), 100);
 
-        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
+        // 第一步：从已定稿物料提取符合条件的 orderIds（聚合去重）
+        Set<Long> matchedOrderIds = collectArchivedOrderIds(
+                userId, userRole, materialType, keyword);
+
+        if (matchedOrderIds.isEmpty()) {
+            return new CursorPage<>(Collections.emptyList(), null, false);
+        }
+
+        // 第二步：查这些订单 + 交付日期区间 + 游标分页
+        LambdaQueryWrapper<Order> orderWrapper = new LambdaQueryWrapper<>();
+        orderWrapper.in(Order::getId, matchedOrderIds);
         if (lastId > 0) {
-            wrapper.lt(Order::getId, lastId);
+            orderWrapper.lt(Order::getId, lastId); // 游标：向下翻
         }
-        wrapper.eq(Order::getArchived, 1);
-        wrapper.eq(Order::getStatus, OrderStatus.DELIVERED.getCode());
-        wrapper.orderByDesc(Order::getId);
-        wrapper.last("LIMIT " + (effectiveLimit + 1));
+        orderWrapper.orderByDesc(Order::getId);
+        orderWrapper.last("LIMIT " + (effectiveLimit + 1));
 
-        // 数据范围
-        applyDataScopeFilter(wrapper, userId, userRole);
-
-        // 过滤
-        if (materialType != null && !materialType.isBlank()) {
-            wrapper.eq(Order::getMaterialType, materialType);
-        }
-        if (keyword != null && !keyword.isBlank()) {
-            String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
-            wrapper.and(w -> w.like(Order::getOrderNo, safeKeyword)
-                    .or().like(Order::getCustomerName, safeKeyword));
-        }
+        // 交付日期区间（作用在订单级 delivered_at）
         if (deliveredDateFrom != null && !deliveredDateFrom.isBlank()) {
-            wrapper.ge(Order::getDeliveredAt, LocalDate.parse(deliveredDateFrom).atStartOfDay());
+            orderWrapper.ge(Order::getDeliveredAt, LocalDate.parse(deliveredDateFrom).atStartOfDay());
         }
         if (deliveredDateTo != null && !deliveredDateTo.isBlank()) {
-            wrapper.le(Order::getDeliveredAt, LocalDate.parse(deliveredDateTo).atTime(23, 59, 59));
+            orderWrapper.le(Order::getDeliveredAt, LocalDate.parse(deliveredDateTo).atTime(23, 59, 59));
         }
 
-        List<Order> all = orderMapper.selectList(wrapper);
+        List<Order> all = orderMapper.selectList(orderWrapper);
         boolean hasMore = all.size() > effectiveLimit;
         List<Order> page = hasMore ? all.subList(0, effectiveLimit) : all;
         String nextCursor = hasMore ? encodeCursor(page.get(page.size() - 1).getId()) : null;
 
-        // 任务统计
-        Map<Long, int[]> taskStats = batchLoadTaskStats(page.stream().map(Order::getId).toList());
+        // 第三步：组装 VO（批量计算每个订单的已定稿任务数）
+        Set<Long> pageOrderIds = new HashSet<>(page.stream().map(Order::getId).toList());
+        Map<Long, Long> approvedTaskCountMap = countApprovedTasksByOrder(pageOrderIds);
 
         List<OrderListItemVO> voList = page.stream().map(o -> {
             OrderListItemVO vo = new OrderListItemVO();
@@ -98,9 +95,8 @@ public class ArchiveServiceImpl implements ArchiveService {
             vo.setStatus(o.getStatus());
             vo.setDeliveryDate(o.getDeliveryDate());
             vo.setCreatedAt(o.getCreatedAt());
-            int[] stats = taskStats.getOrDefault(o.getId(), new int[]{0, 0});
-            vo.setTaskCount(stats[0]);
-            vo.setApprovedTaskCount(stats[1]);
+            // 物料数量：该订单已定稿的任务条数（聚合维度）
+            vo.setTaskCount(approvedTaskCountMap.getOrDefault(o.getId(), 0L).intValue());
             return vo;
         }).toList();
 
@@ -108,7 +104,7 @@ public class ArchiveServiceImpl implements ArchiveService {
     }
 
     // ========================================================================
-    // 【2】归档订单详情
+    // 【2】归档订单详情（只读，复用 OrderService）
     // ========================================================================
     @Override
     public OrderDetailVO getArchivedOrderDetail(Long orderId, Long userId, String userRole) {
@@ -116,64 +112,113 @@ public class ArchiveServiceImpl implements ArchiveService {
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在");
         }
-        if (!Integer.valueOf(1).equals(order.getArchived())) {
-            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT, "该订单尚未归档");
-        }
-
         // 复用订单详情查询（已做数据范围校验）
         return orderService.getOrderDetail(orderId, userId, userRole);
     }
 
     // ========================================================================
-    // 【3】归档订单数量统计
+    // 【3】归档卡片 count — 与 listArchivedOrders 完全相同的筛选逻辑
     // ========================================================================
     @Override
-    public long countArchived(Long userId, String userRole) {
-        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Order::getArchived, 1);
-        wrapper.eq(Order::getStatus, OrderStatus.DELIVERED.getCode());
-        applyDataScopeFilter(wrapper, userId, userRole);
-        return orderMapper.selectCount(wrapper);
+    public long countArchived(Long userId, String userRole,
+                              String materialType, String keyword,
+                              String deliveredDateFrom, String deliveredDateTo) {
+        // 复用 listArchivedOrders 的第一步：聚合去重后的订单集合
+        Set<Long> matchedOrderIds = collectArchivedOrderIds(
+                userId, userRole, materialType, keyword);
+
+        if (matchedOrderIds.isEmpty()) return 0L;
+
+        // 交付日期区间（作用在订单级，与 list 的第二步一致）
+        if (deliveredDateFrom == null && deliveredDateTo == null) {
+            return matchedOrderIds.size();
+        }
+
+        LambdaQueryWrapper<Order> orderWrapper = new LambdaQueryWrapper<>();
+        orderWrapper.in(Order::getId, matchedOrderIds);
+        if (deliveredDateFrom != null && !deliveredDateFrom.isBlank()) {
+            orderWrapper.ge(Order::getDeliveredAt, LocalDate.parse(deliveredDateFrom).atStartOfDay());
+        }
+        if (deliveredDateTo != null && !deliveredDateTo.isBlank()) {
+            orderWrapper.le(Order::getDeliveredAt, LocalDate.parse(deliveredDateTo).atTime(23, 59, 59));
+        }
+        Long count = orderMapper.selectCount(orderWrapper);
+        return count != null ? count : 0L;
     }
 
     // ========================================================================
-    //  私有辅助
+    //  私有核心：从已定稿物料聚合订单（列表和 count 共用的查询条件对象）
     // ========================================================================
 
-    private void applyDataScopeFilter(LambdaQueryWrapper<Order> wrapper, Long userId, String role) {
-        if (UserRole.AM.getCode().equals(role)) {
-            wrapper.eq(Order::getCreatedBy, userId);
-        } else if (UserRole.DS.getCode().equals(role)) {
-            // 多物料模型：DS 的可见范围按任务级 designer_id
-            List<Long> orderIds = orderTaskMapper.selectList(
-                    new LambdaQueryWrapper<OrderTask>()
-                            .eq(OrderTask::getDesignerId, userId)
-                            .select(OrderTask::getOrderId)
-            ).stream().map(OrderTask::getOrderId).distinct().toList();
-            if (orderIds.isEmpty()) {
-                wrapper.eq(Order::getId, -1L);
-            } else {
-                wrapper.in(Order::getId, orderIds);
+    /**
+     * 从已定稿物料（APPROVED / DELIVERED）中，筛选出符合条件的 orderId 集合。
+     * <p>筛选条件全部作用在底层物料（order_tasks）上：
+     * <ul>
+     *   <li>status IN (APPROVED, DELIVERED)</li>
+     *   <li>materialType — 物料类型</li>
+     *   <li>keyword — 任务编号/规格</li>
+     *   <li>归属过滤 — BL 全量 / AM 限自己创建 / DS 限自己设计的任务</li>
+     * </ul>
+     * 返回 Set 天然去重 —— 同一个订单的多个已定稿物料只出现一次。
+     */
+    private Set<Long> collectArchivedOrderIds(Long userId, String userRole,
+                                              String materialType, String keyword) {
+        LambdaQueryWrapper<OrderTask> taskWrapper = new LambdaQueryWrapper<>();
+        // 已定稿的物料（核心条件，覆盖 APPROVED + DELIVERED）
+        taskWrapper.in(OrderTask::getStatus,
+                OrderStatus.APPROVED.getCode(), OrderStatus.DELIVERED.getCode());
+
+        // 归属过滤
+        if (UserRole.AM.getCode().equals(userRole)) {
+            // 客户经理：限自己创建的订单下的已定稿物料
+            List<Long> ownOrderIds = orderMapper.selectList(
+                    new LambdaQueryWrapper<Order>()
+                            .eq(Order::getCreatedBy, userId)
+                            .select(Order::getId)
+            ).stream().map(Order::getId).toList();
+            if (ownOrderIds.isEmpty()) return Collections.emptySet();
+            taskWrapper.in(OrderTask::getOrderId, ownOrderIds);
+        } else if (UserRole.DS.getCode().equals(userRole)) {
+            // 设计师：限自己参与设计的已定稿物料
+            taskWrapper.eq(OrderTask::getDesignerId, userId);
+        }
+        // BL：全量，不加归属
+
+        // 物料类型筛选
+        if (materialType != null && !materialType.isBlank()) {
+            taskWrapper.eq(OrderTask::getMaterialType, materialType);
+        }
+        // 关键字（底层任务编号/规格）
+        if (keyword != null && !keyword.isBlank()) {
+            String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
+            taskWrapper.and(w -> w.like(OrderTask::getTaskNo, safeKeyword)
+                    .or().like(OrderTask::getSpecification, safeKeyword));
+        }
+
+        List<OrderTask> matchedTasks = orderTaskMapper.selectList(taskWrapper);
+        Set<Long> orderIds = new HashSet<>();
+        for (OrderTask t : matchedTasks) {
+            if (t.getOrderId() != null) {
+                orderIds.add(t.getOrderId());
             }
         }
-        // BL：全量
+        return orderIds;
     }
 
-    private Map<Long, int[]> batchLoadTaskStats(List<Long> orderIds) {
-        Map<Long, int[]> result = new HashMap<>();
+    /** 批量计算每个订单下已定稿（APPROVED/DELIVERED）的任务数量 */
+    private Map<Long, Long> countApprovedTasksByOrder(Set<Long> orderIds) {
+        Map<Long, Long> result = new HashMap<>();
         if (orderIds == null || orderIds.isEmpty()) return result;
 
-        List<OrderTask> allTasks = orderTaskMapper.selectList(
-                new LambdaQueryWrapper<OrderTask>().in(OrderTask::getOrderId, orderIds)
-        );
+        LambdaQueryWrapper<OrderTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(OrderTask::getOrderId, orderIds);
+        wrapper.in(OrderTask::getStatus,
+                OrderStatus.APPROVED.getCode(), OrderStatus.DELIVERED.getCode());
+        wrapper.select(OrderTask::getOrderId);
 
-        for (OrderTask t : allTasks) {
-            int[] stats = result.computeIfAbsent(t.getOrderId(), k -> new int[]{0, 0});
-            stats[0]++;
-            if (OrderStatus.APPROVED.getCode().equals(t.getStatus())
-                    || OrderStatus.DELIVERED.getCode().equals(t.getStatus())) {
-                stats[1]++;
-            }
+        List<OrderTask> tasks = orderTaskMapper.selectList(wrapper);
+        for (OrderTask t : tasks) {
+            result.merge(t.getOrderId(), 1L, Long::sum);
         }
         return result;
     }

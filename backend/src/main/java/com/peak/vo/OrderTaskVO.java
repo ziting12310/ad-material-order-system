@@ -12,6 +12,9 @@ public class OrderTaskVO {
     @Schema(description = "任务ID")
     private Long id;
 
+    @Schema(description = "所属订单ID（用于关联订单详情）")
+    private Long orderId;
+
     @Schema(description = "任务编号", example = "T-001")
     private String taskNo;
 
