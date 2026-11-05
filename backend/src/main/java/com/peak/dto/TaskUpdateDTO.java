@@ -1,7 +1,9 @@
 package com.peak.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -17,6 +19,9 @@ public class TaskUpdateDTO {
     @Schema(description = "物料类型")
     private String materialType;
 
+    @NotNull(message = "数量不能为空")
+    @Positive(message = "数量必须为正整数")
+    @Max(value = 99999, message = "数量需在 1-99999 之间")
     @Schema(description = "数量")
     private Integer quantity;
 

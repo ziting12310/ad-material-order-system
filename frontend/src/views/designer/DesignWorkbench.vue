@@ -554,15 +554,11 @@ async function fetchTaskList(isLoadMore = false) {
       limit: PAGE_SIZE
     }
 
-    // DS：只看我的任务（按 designerId 过滤）
-    // BL：看全部任务（不过滤 designerId）
-    if (!isBL.value) {
-      const designerId = userStore.userInfo?.id
-      if (!designerId) {
-        throw new Error('未获取到用户信息')
-      }
-      params.designerId = designerId
-    }
+    // 后端 applyDataScopeFilter 已按角色自动过滤：
+    //   DS → 只含其任务 designer_id = 当前用户 的订单集合（任务级过滤，正确）
+    //   BL → 全部订单
+    //   AM → 仅自己创建的订单
+    // 不再手动传 designerId，避免后端 applyOrderFilters 用订单级 orders.designer_id（任务级分派下为 NULL）做二次过滤导致 DS 查不到数据
 
     if (isLoadMore && nextCursor.value) {
       params.cursor = nextCursor.value

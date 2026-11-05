@@ -1,6 +1,8 @@
 package com.peak.dto;
 
 import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -22,9 +24,12 @@ public class OrderUpdateRequest {
     private String contactPhone;
     @NotBlank
     private String materialType;
-    @NotNull @Positive
+    @NotNull
+    @Positive(message = "数量必须为正整数")
+    @Max(value = 99999, message = "数量需在 1-99999 之间")
     private Integer quantity;
-    @NotBlank @Size(min = 5, max = 200)
+    @NotBlank
+    @Size(min = 5, max = 200, message = "规格说明长度需在 5-200 字符之间")
     private String specification;
     @NotNull @Future
     private LocalDate deliveryDate;

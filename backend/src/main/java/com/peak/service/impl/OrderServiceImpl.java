@@ -181,12 +181,17 @@ public class OrderServiceImpl implements OrderService {
         Map<Long, int[]> taskStats = batchLoadTaskStats(
                 page.stream().map(Order::getId).toList());
 
+        // 批量查每个订单的任务列表（含设计师姓名、规格、状态等完整字段，供前端工作台扁平化展示）
+        Map<Long, List<OrderTaskVO>> taskVOsByOrder = batchLoadOrderTaskVOs(
+                page.stream().map(Order::getId).toList());
+
         List<OrderListItemVO> voList = page.stream()
                 .map(o -> {
                     OrderListItemVO vo = buildListItemVO(o, designerNames.get(o.getDesignerId()));
                     int[] stats = taskStats.getOrDefault(o.getId(), new int[]{0, 0});
                     vo.setTaskCount(stats[0]);
                     vo.setApprovedTaskCount(stats[1]);
+                    vo.setTasks(taskVOsByOrder.getOrDefault(o.getId(), Collections.emptyList()));
                     return vo;
                 })
                 .toList();
@@ -1129,6 +1134,51 @@ public class OrderServiceImpl implements OrderService {
             if (OrderStatus.APPROVED.getCode().equals(t.getStatus())) {
                 stats[1]++;
             }
+        }
+        return result;
+    }
+
+    /** 批量查订单任务列表并组装 OrderTaskVO（含设计师姓名），供前端工作台扁平化展示 */
+    private Map<Long, List<OrderTaskVO>> batchLoadOrderTaskVOs(List<Long> orderIds) {
+        Map<Long, List<OrderTaskVO>> result = new HashMap<>();
+        if (orderIds == null || orderIds.isEmpty()) return result;
+
+        // 一次查出所有订单的任务
+        List<OrderTask> allTasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>()
+                        .in(OrderTask::getOrderId, orderIds)
+                        .orderByAsc(OrderTask::getSortOrder)
+        );
+        if (allTasks.isEmpty()) return result;
+
+        // 批量查设计师姓名
+        List<Long> designerIds = allTasks.stream()
+                .map(OrderTask::getDesignerId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        Map<Long, String> designerNames = batchLoadUserNames(designerIds);
+
+        // 按 orderId 分组组装 VO
+        for (OrderTask t : allTasks) {
+            OrderTaskVO vo = new OrderTaskVO();
+            vo.setId(t.getId());
+            vo.setTaskNo(t.getTaskNo());
+            vo.setMaterialType(t.getMaterialType());
+            vo.setQuantity(t.getQuantity());
+            vo.setSpecification(t.getSpecification());
+            vo.setUsageDesc(t.getUsageDesc());
+            vo.setDeadline(t.getDeadline());
+            vo.setRemark(t.getRemark());
+            vo.setStatus(t.getStatus());
+            vo.setDesignerId(t.getDesignerId());
+            vo.setDesignerName(t.getDesignerId() != null ? designerNames.get(t.getDesignerId()) : null);
+            vo.setAssignRemark(t.getAssignRemark());
+            vo.setVersion(t.getVersion());
+            vo.setCreatedAt(t.getCreatedAt());
+            vo.setSortOrder(t.getSortOrder());
+
+            result.computeIfAbsent(t.getOrderId(), k -> new ArrayList<>()).add(vo);
         }
         return result;
     }

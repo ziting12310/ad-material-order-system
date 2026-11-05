@@ -366,6 +366,18 @@ public class OrderTaskServiceImpl implements OrderTaskService {
             throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "任务已被他人修改，请刷新后重试");
         }
 
+        // 补写订单冗余字段（designer_id / assigned_by / assigned_at）
+        // 保证：①订单级接单 acceptTask 的 designerId 比对通过
+        //      ②后端 applyOrderFilters 按 designerId 过滤订单时能命中
+        //      ③前端订单详情/列表的 designerName 有值
+        order.setDesignerId(dto.getDesignerId());
+        order.setAssignedBy(operatorId);
+        order.setAssignedAt(LocalDateTime.now());
+        int orderRows = orderMapper.updateById(order);
+        if (orderRows == 0) {
+            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改，请刷新后重试");
+        }
+
         opLog.logTask(task.getOrderId(), taskId, OperationType.TASK_ASSIGN,
                 "分派给设计人员：" + designer.getName(),
                 operatorId, null, null);

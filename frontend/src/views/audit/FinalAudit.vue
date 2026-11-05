@@ -136,10 +136,11 @@
                 <el-button type="primary" link size="small" @click="handleViewDetail(row)">
                   查看详情
                 </el-button>
-                <el-button type="success" size="small" @click="openApprove(row)">
+                <!-- 仅 BL（项目负责人）可执行定稿/驳回；AM（客户经理）只读 -->
+                <el-button v-if="isBL" type="success" size="small" @click="openApprove(row)">
                   确认定稿
                 </el-button>
-                <el-button type="danger" size="small" plain @click="openReject(row)">
+                <el-button v-if="isBL" type="danger" size="small" plain @click="openReject(row)">
                   驳回
                 </el-button>
               </template>
@@ -326,6 +327,122 @@
             <el-empty
               v-else-if="!archiveLoading"
               :description="hasArchiveFilters ? '暂无符合条件的数据' : '暂无数据'"
+              :image-size="100"
+            />
+          </div>
+        </el-tab-pane>
+
+        <!-- ========== 已驳回 Tab ========== -->
+        <el-tab-pane label="已驳回" name="rejected">
+          <!-- 筛选 -->
+          <div class="filter-bar">
+            <el-form :model="rejectedFilters" inline label-width="72px" @submit.prevent>
+              <el-form-item label="关键字">
+                <el-input
+                  v-model="rejectedFilters.keyword"
+                  placeholder="任务编号/规格"
+                  clearable
+                  style="width: 200px"
+                  @keyup.enter="handleRejectedSearch"
+                />
+              </el-form-item>
+              <el-form-item label="物料类型">
+                <el-select
+                  v-model="rejectedFilters.materialType"
+                  placeholder="全部类型"
+                  clearable
+                  style="width: 140px"
+                >
+                  <el-option
+                    v-for="item in MATERIAL_OPTIONS"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :icon="Search" @click="handleRejectedSearch">搜索</el-button>
+                <el-button :icon="RefreshLeft" @click="handleRejectedReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+
+          <!-- 任务表格 -->
+          <el-table
+            v-loading="rejectedLoading"
+            :data="rejectedList"
+            border
+            style="width: 100%"
+            :header-cell-style="headerCellStyle"
+            class="pending-table"
+          >
+            <el-table-column prop="taskNo" label="任务编号" width="150">
+              <template #default="{ row }">
+                <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="所属订单" width="160">
+              <template #default="{ row }">
+                <span class="order-no-text">{{ row.orderNo || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="customerName" label="公司名称" min-width="120" />
+            <el-table-column label="物料类型" width="100">
+              <template #default="{ row }">
+                {{ getMaterialLabel(row.materialType) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="quantity" label="数量" width="80" align="right" />
+            <el-table-column prop="specification" label="规格" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.specification || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag
+                  :type="getTaskStatusType(row.status)"
+                  effect="light"
+                  round
+                  size="small"
+                >
+                  {{ getTaskStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="deadline" label="截止日期" width="120">
+              <template #default="{ row }">
+                {{ row.deadline || row.deliveryDate || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right" align="center">
+              <template #default="{ row }">
+                <el-button type="primary" link size="small" @click="handleViewDetail(row)">
+                  查看详情
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <!-- 加载更多 -->
+          <div class="load-more-wrap">
+            <el-button
+              v-if="rejectedHasMore"
+              type="primary"
+              plain
+              :loading="rejectedLoadingMore"
+              :disabled="rejectedLoadingMore"
+              @click="loadMoreRejected"
+            >
+              {{ rejectedLoadingMore ? '加载中...' : '加载更多' }}
+            </el-button>
+            <div v-else-if="rejectedList.length > 0" class="no-more">
+              没有更多了
+            </div>
+            <el-empty
+              v-else-if="!rejectedLoading"
+              :description="hasRejectedFilters ? '暂无符合条件的数据' : '暂无已驳回任务'"
               :image-size="100"
             />
           </div>
@@ -538,9 +655,12 @@ import {
 } from '@element-plus/icons-vue'
 import {
   listPendingTasks,
+  listApprovedTasks,
+  listRejectedTasks,
   listMyAuditLogs,
   listArchivedOrders,
   getArchivedOrder,
+  getAuditStats,
   approveTask,
   rejectTask
 } from '@/api/audit'
@@ -589,14 +709,20 @@ const hasArchiveFilters = computed(() => {
 
 function switchToPending() {
   activeTab.value = 'pending'
+  fetchPendingList(false)
+  fetchStats()
 }
 function switchToApproved() {
-  // 已定稿在归档中查看
+  // 已定稿卡片 → 切换到已归档 tab
   activeTab.value = 'archive'
+  fetchArchiveList(false)
+  fetchStats()
 }
 function switchToRejected() {
-  // 已驳回也在归档中查看
-  activeTab.value = 'archive'
+  // 已驳回卡片 → 切换到已驳回 tab
+  activeTab.value = 'rejected'
+  fetchRejectedList(false)
+  fetchStats()
 }
 
 // ---------- 统计 ----------
@@ -608,19 +734,15 @@ const stats = reactive({
 
 async function fetchStats() {
   try {
-    // 分别查询各状态数量
-    const [pendingRes] = await Promise.all([
-      listPendingTasks({ limit: 1 }).catch(() => ({ total: 0 }))
-    ])
-    stats.pending = pendingRes.total || 0
-    // 已定稿和已驳回从归档统计中获取（简化处理）
-    stats.approved = 0
-    stats.rejected = 0
+    const res = await getAuditStats()
+    stats.pending = res.pendingCount || 0
+    stats.approved = res.approvedCount || 0
+    stats.rejected = res.rejectedCount || 0
   } catch (e) {
-    // mock 数据
-    stats.pending = 12
-    stats.approved = 48
-    stats.rejected = 5
+    // 降级兜底：至少不显示 NaN
+    stats.pending = stats.pending || 0
+    stats.approved = stats.approved || 0
+    stats.rejected = stats.rejected || 0
   }
 }
 
@@ -855,6 +977,82 @@ async function handleArchiveDrawerOpen() {
   }
 }
 
+// ========== 已驳回 Tab ==========
+const rejectedFilters = reactive({
+  keyword: '',
+  materialType: ''
+})
+const rejectedLoading = ref(false)
+const rejectedLoadingMore = ref(false)
+const rejectedList = ref([])
+const rejectedNextCursor = ref(null)
+const rejectedHasMore = ref(true)
+const rejectedError = ref(false)
+
+const hasRejectedFilters = computed(() => {
+  return !!(rejectedFilters.keyword || rejectedFilters.materialType)
+})
+
+async function fetchRejectedList(isLoadMore = false) {
+  if (isLoadMore) {
+    if (!rejectedHasMore.value || rejectedLoadingMore.value) return
+    rejectedLoadingMore.value = true
+  } else {
+    rejectedLoading.value = true
+    rejectedError.value = false
+  }
+
+  try {
+    const params = {
+      limit: PAGE_SIZE
+    }
+    if (isLoadMore && rejectedNextCursor.value) {
+      params.cursor = rejectedNextCursor.value
+    }
+    if (rejectedFilters.keyword) params.keyword = rejectedFilters.keyword
+    if (rejectedFilters.materialType) params.materialType = rejectedFilters.materialType
+
+    const res = await listRejectedTasks(params)
+
+    if (isLoadMore) {
+      if (res.list && res.list.length > 0) {
+        rejectedList.value = [...rejectedList.value, ...res.list]
+      }
+    } else {
+      rejectedList.value = res.list || []
+    }
+
+    rejectedNextCursor.value = res.nextCursor || null
+    rejectedHasMore.value = res.hasMore !== false
+  } catch (e) {
+    rejectedError.value = true
+    if (!isLoadMore) {
+      rejectedList.value = []
+    }
+  } finally {
+    rejectedLoading.value = false
+    rejectedLoadingMore.value = false
+  }
+}
+
+function loadMoreRejected() {
+  fetchRejectedList(true)
+}
+
+function handleRejectedSearch() {
+  rejectedNextCursor.value = null
+  rejectedHasMore.value = true
+  fetchRejectedList(false)
+}
+
+function handleRejectedReset() {
+  rejectedFilters.keyword = ''
+  rejectedFilters.materialType = ''
+  rejectedNextCursor.value = null
+  rejectedHasMore.value = true
+  fetchRejectedList(false)
+}
+
 // ========== 确认定稿弹窗 ==========
 const approveDialog = reactive({
   visible: false,
@@ -983,6 +1181,9 @@ watch(activeTab, (val) => {
   }
   if (val === 'archive' && archiveList.value.length === 0) {
     fetchArchiveList(false)
+  }
+  if (val === 'rejected' && rejectedList.value.length === 0) {
+    fetchRejectedList(false)
   }
 })
 

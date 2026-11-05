@@ -171,6 +171,313 @@ public class FinalAuditServiceImpl implements FinalAuditService {
         return count != null ? count : 0L;
     }
 
+    // ========================================================================
+    // 【1.5】已定稿任务列表 & 数量（APPROVED / DELIVERED）
+    // ========================================================================
+    @Override
+    public CursorPage<OrderTaskVO> listApprovedTasks(Long userId, String userRole,
+                                                     String cursor, int limit,
+                                                     String materialType, String keyword) {
+        return buildTaskPage(userId, userRole, cursor, limit, materialType, keyword,
+                List.of(OrderStatus.APPROVED.getCode(), OrderStatus.DELIVERED.getCode()));
+    }
+
+    @Override
+    public long countApprovedTasks(Long userId, String userRole,
+                                   String materialType, String keyword) {
+        return countByStatus(userId, userRole, materialType, keyword,
+                List.of(OrderStatus.APPROVED.getCode(), OrderStatus.DELIVERED.getCode()));
+    }
+
+    // ========================================================================
+    // 【1.6】已驳回任务列表 & 数量（最近一次审核操作是 TASK_REJECT，后续无 TASK_APPROVE）
+    // ========================================================================
+    @Override
+    public CursorPage<OrderTaskVO> listRejectedTasks(Long userId, String userRole,
+                                                      String cursor, int limit,
+                                                      String materialType, String keyword) {
+        long lastId = decodeCursor(cursor);
+        int effectiveLimit = Math.min(Math.max(limit, 1), 100);
+
+        // 数据范围 scopeOrderIds（与 listPendingTasks 完全一致）
+        List<Long> scopeOrderIds = resolveScopeOrderIds(userId, userRole);
+
+        // 第一步：查出所有审核相关的 OperationLog（TASK_APPROVE / TASK_REJECT）
+        LambdaQueryWrapper<OrderOperationLog> logWrapper = new LambdaQueryWrapper<>();
+        logWrapper.in(OrderOperationLog::getOperationType,
+                OperationType.TASK_APPROVE.getCode(), OperationType.TASK_REJECT.getCode());
+        if (scopeOrderIds != null) {
+            logWrapper.in(OrderOperationLog::getOrderId, scopeOrderIds);
+        }
+        logWrapper.orderByDesc(OrderOperationLog::getOperatedAt);
+        logWrapper.orderByDesc(OrderOperationLog::getId);
+
+        List<OrderOperationLog> allAuditLogs = operationLogMapper.selectList(logWrapper);
+        if (allAuditLogs.isEmpty()) {
+            return new CursorPage<>(Collections.emptyList(), null, false);
+        }
+
+        // 第二步：按 taskId 分组，取最近一条 → 过滤出"最近一次是 TASK_REJECT"的 taskIds
+        // 同时记录每个 taskId 对应的 reject 时间用于排序
+        Map<Long, java.time.LocalDateTime> taskRejectTime = new java.util.LinkedHashMap<>();
+        Set<Long> approvedRecentlyTaskIds = new java.util.HashSet<>();
+        for (OrderOperationLog log : allAuditLogs) {
+            Long tid = log.getTaskId();
+            if (tid == null) continue;
+            if (OperationType.TASK_APPROVE.getCode().equals(log.getOperationType())) {
+                approvedRecentlyTaskIds.add(tid);
+            } else if (OperationType.TASK_REJECT.getCode().equals(log.getOperationType())) {
+                if (!approvedRecentlyTaskIds.contains(tid) && !taskRejectTime.containsKey(tid)) {
+                    taskRejectTime.put(tid, log.getOperatedAt());
+                }
+            }
+        }
+
+        // 注意：taskRejectTime 的插入顺序就是按 operatedAt DESC 排好的（LinkedHashMap）
+        List<Long> rejectedTaskIds = new ArrayList<>(taskRejectTime.keySet());
+        if (rejectedTaskIds.isEmpty()) {
+            return new CursorPage<>(Collections.emptyList(), null, false);
+        }
+
+        // 第三步：查这些任务的实体，追加过滤条件（materialType / keyword）
+        // 但 rejectedTaskIds 已按时间 DESC，需要用 IN 查询后在内存过滤
+        LambdaQueryWrapper<OrderTask> taskWrapper = new LambdaQueryWrapper<>();
+        taskWrapper.in(OrderTask::getId, rejectedTaskIds);
+        if (materialType != null && !materialType.isBlank()) {
+            taskWrapper.eq(OrderTask::getMaterialType, materialType);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
+            taskWrapper.and(w -> w.like(OrderTask::getTaskNo, safeKeyword)
+                    .or().like(OrderTask::getSpecification, safeKeyword));
+        }
+        List<OrderTask> allMatched = orderTaskMapper.selectList(taskWrapper);
+
+        // 第四步：按 rejectedTaskIds 的顺序（即 operatedAt DESC）排序 + 游标分页
+        Map<Long, OrderTask> taskMap = new HashMap<>();
+        allMatched.forEach(t -> taskMap.put(t.getId(), t));
+        List<OrderTask> sorted = new ArrayList<>();
+        for (Long tid : rejectedTaskIds) {
+            OrderTask t = taskMap.get(tid);
+            if (t != null) sorted.add(t);
+        }
+
+        // 游标分页：用任务的 id 游标（与 listPendingTasks 一致）
+        List<OrderTask> afterCursor = new ArrayList<>();
+        boolean passedCursor = lastId == 0;
+        for (OrderTask t : sorted) {
+            if (passedCursor && t.getId() > lastId) {
+                afterCursor.add(t);
+            }
+            if (!passedCursor && t.getId() == lastId) {
+                passedCursor = true;
+            }
+        }
+        if (!passedCursor && lastId != 0) {
+            // lastId 不在列表中，说明是过期游标，从头开始
+            afterCursor = new ArrayList<>(sorted);
+        }
+
+        boolean hasMore = afterCursor.size() > effectiveLimit;
+        List<OrderTask> page = hasMore ? afterCursor.subList(0, effectiveLimit) : afterCursor;
+        String nextCursor = hasMore ? encodeCursor(page.get(page.size() - 1).getId()) : null;
+
+        if (page.isEmpty()) {
+            return new CursorPage<>(Collections.emptyList(), null, false);
+        }
+
+        // 组装 VO（复用 listPendingTasks 的逻辑）
+        Map<Long, String> designerNames = batchLoadUserNames(
+                page.stream().map(OrderTask::getDesignerId).filter(id -> id != null).distinct().toList());
+        List<Long> orderIds = page.stream().map(OrderTask::getOrderId).distinct().toList();
+        Map<Long, String> orderNoMap = new HashMap<>();
+        if (!orderIds.isEmpty()) {
+            orderMapper.selectBatchIds(orderIds).forEach(o -> orderNoMap.put(o.getId(), o.getOrderNo()));
+        }
+
+        List<OrderTaskVO> voList = page.stream().map(t -> {
+            OrderTaskVO vo = new OrderTaskVO();
+            vo.setId(t.getId());
+            vo.setTaskNo(t.getTaskNo());
+            vo.setMaterialType(t.getMaterialType());
+            MaterialType mt = MaterialType.of(t.getMaterialType());
+            vo.setMaterialTypeName(mt != null ? mt.getLabel() : t.getMaterialType());
+            vo.setQuantity(t.getQuantity());
+            vo.setSpecification(t.getSpecification());
+            vo.setUsageDesc(t.getUsageDesc());
+            vo.setDeadline(t.getDeadline());
+            vo.setStatus(t.getStatus());
+            OrderStatus s = OrderStatus.of(t.getStatus());
+            vo.setStatusName(s != null ? s.getLabel() : t.getStatus());
+            vo.setDesignerId(t.getDesignerId());
+            vo.setDesignerName(designerNames.get(t.getDesignerId()));
+            vo.setSortOrder(t.getSortOrder());
+            vo.setVersion(t.getVersion());
+            vo.setCreatedAt(t.getCreatedAt());
+            return vo;
+        }).toList();
+
+        return new CursorPage<>(voList, nextCursor, hasMore);
+    }
+
+    @Override
+    public long countRejectedTasks(Long userId, String userRole,
+                                   String materialType, String keyword) {
+        // 复用 listRejectedTasks 中前 3 步的逻辑（不做游标分页），最后 selectCount
+        List<Long> scopeOrderIds = resolveScopeOrderIds(userId, userRole);
+
+        LambdaQueryWrapper<OrderOperationLog> logWrapper = new LambdaQueryWrapper<>();
+        logWrapper.in(OrderOperationLog::getOperationType,
+                OperationType.TASK_APPROVE.getCode(), OperationType.TASK_REJECT.getCode());
+        if (scopeOrderIds != null) {
+            logWrapper.in(OrderOperationLog::getOrderId, scopeOrderIds);
+        }
+        logWrapper.orderByDesc(OrderOperationLog::getOperatedAt);
+        logWrapper.orderByDesc(OrderOperationLog::getId);
+
+        List<OrderOperationLog> logs = operationLogMapper.selectList(logWrapper);
+        if (logs.isEmpty()) return 0L;
+
+        Set<Long> rejectedTaskIds = new java.util.HashSet<>();
+        Set<Long> approvedRecentlyTaskIds = new java.util.HashSet<>();
+        for (OrderOperationLog log : logs) {
+            Long tid = log.getTaskId();
+            if (tid == null) continue;
+            if (OperationType.TASK_APPROVE.getCode().equals(log.getOperationType())) {
+                approvedRecentlyTaskIds.add(tid);
+            } else if (OperationType.TASK_REJECT.getCode().equals(log.getOperationType())) {
+                if (!approvedRecentlyTaskIds.contains(tid)) {
+                    rejectedTaskIds.add(tid);
+                }
+            }
+        }
+        if (rejectedTaskIds.isEmpty()) return 0L;
+
+        LambdaQueryWrapper<OrderTask> taskWrapper = new LambdaQueryWrapper<>();
+        taskWrapper.in(OrderTask::getId, rejectedTaskIds);
+        if (materialType != null && !materialType.isBlank()) {
+            taskWrapper.eq(OrderTask::getMaterialType, materialType);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
+            taskWrapper.and(w -> w.like(OrderTask::getTaskNo, safeKeyword)
+                    .or().like(OrderTask::getSpecification, safeKeyword));
+        }
+        Long count = orderTaskMapper.selectCount(taskWrapper);
+        return count != null ? count : 0L;
+    }
+
+    // ========================================================================
+    // 【辅助方法】复用的通用逻辑
+    // ========================================================================
+    /** 按状态集合查询任务列表（复用 listPendingTasks 骨架） */
+    private CursorPage<OrderTaskVO> buildTaskPage(Long userId, String userRole,
+                                                   String cursor, int limit,
+                                                   String materialType, String keyword,
+                                                   List<String> statusList) {
+        long lastId = decodeCursor(cursor);
+        int effectiveLimit = Math.min(Math.max(limit, 1), 100);
+
+        LambdaQueryWrapper<OrderTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.gt(OrderTask::getId, lastId);
+        wrapper.in(OrderTask::getStatus, statusList);
+        wrapper.orderByDesc(OrderTask::getUpdatedAt);
+        wrapper.orderByDesc(OrderTask::getId);
+        wrapper.last("LIMIT " + (effectiveLimit + 1));
+
+        List<Long> scopeOrderIds = resolveScopeOrderIds(userId, userRole);
+        if (scopeOrderIds != null) {
+            wrapper.in(OrderTask::getOrderId, scopeOrderIds);
+        }
+
+        if (materialType != null && !materialType.isBlank()) {
+            wrapper.eq(OrderTask::getMaterialType, materialType);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
+            wrapper.and(w -> w.like(OrderTask::getTaskNo, safeKeyword)
+                    .or().like(OrderTask::getSpecification, safeKeyword));
+        }
+
+        List<OrderTask> all = orderTaskMapper.selectList(wrapper);
+        boolean hasMore = all.size() > effectiveLimit;
+        List<OrderTask> page = hasMore ? all.subList(0, effectiveLimit) : all;
+        String nextCursor = hasMore ? encodeCursor(page.get(page.size() - 1).getId()) : null;
+
+        Map<Long, String> designerNames = batchLoadUserNames(
+                page.stream().map(OrderTask::getDesignerId).filter(id -> id != null).distinct().toList());
+        List<Long> orderIds = page.stream().map(OrderTask::getOrderId).distinct().toList();
+        Map<Long, String> orderNoMap = new HashMap<>();
+        if (!orderIds.isEmpty()) {
+            orderMapper.selectBatchIds(orderIds).forEach(o -> orderNoMap.put(o.getId(), o.getOrderNo()));
+        }
+
+        List<OrderTaskVO> voList = page.stream().map(t -> {
+            OrderTaskVO vo = new OrderTaskVO();
+            vo.setId(t.getId());
+            vo.setTaskNo(t.getTaskNo());
+            vo.setMaterialType(t.getMaterialType());
+            MaterialType mt = MaterialType.of(t.getMaterialType());
+            vo.setMaterialTypeName(mt != null ? mt.getLabel() : t.getMaterialType());
+            vo.setQuantity(t.getQuantity());
+            vo.setSpecification(t.getSpecification());
+            vo.setUsageDesc(t.getUsageDesc());
+            vo.setDeadline(t.getDeadline());
+            vo.setStatus(t.getStatus());
+            OrderStatus s = OrderStatus.of(t.getStatus());
+            vo.setStatusName(s != null ? s.getLabel() : t.getStatus());
+            vo.setDesignerId(t.getDesignerId());
+            vo.setDesignerName(designerNames.get(t.getDesignerId()));
+            vo.setSortOrder(t.getSortOrder());
+            vo.setVersion(t.getVersion());
+            vo.setCreatedAt(t.getCreatedAt());
+            return vo;
+        }).toList();
+
+        return new CursorPage<>(voList, nextCursor, hasMore);
+    }
+
+    /** 按状态集合查询任务数量 */
+    private long countByStatus(Long userId, String userRole,
+                               String materialType, String keyword,
+                               List<String> statusList) {
+        LambdaQueryWrapper<OrderTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(OrderTask::getStatus, statusList);
+
+        List<Long> scopeOrderIds = resolveScopeOrderIds(userId, userRole);
+        if (scopeOrderIds != null) {
+            wrapper.in(OrderTask::getOrderId, scopeOrderIds);
+        }
+
+        if (materialType != null && !materialType.isBlank()) {
+            wrapper.eq(OrderTask::getMaterialType, materialType);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
+            wrapper.and(w -> w.like(OrderTask::getTaskNo, safeKeyword)
+                    .or().like(OrderTask::getSpecification, safeKeyword));
+        }
+        Long count = orderTaskMapper.selectCount(wrapper);
+        return count != null ? count : 0L;
+    }
+
+    /** 解析当前用户的数据范围 — 返回 null 表示无限制（BL），空 list 表示 AM 没创建过订单 */
+    private List<Long> resolveScopeOrderIds(Long userId, String userRole) {
+        if (UserRole.DS.getCode().equals(userRole)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "设计人员无审核权限");
+        }
+        if (UserRole.AM.getCode().equals(userRole)) {
+            List<Long> ids = orderMapper.selectList(
+                    new LambdaQueryWrapper<Order>()
+                            .eq(Order::getCreatedBy, userId)
+                            .select(Order::getId)
+            ).stream().map(Order::getId).toList();
+            return ids.isEmpty() ? Collections.emptyList() : ids;
+        }
+        // BL → null 表示不限制
+        return null;
+    }
+
     @Override
     public AuditStatsVO getAuditStats(Long userId, String userRole) {
         AuditStatsVO stats = new AuditStatsVO();
