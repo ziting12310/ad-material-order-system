@@ -63,9 +63,11 @@ public class FileController {
     }
 
     @GetMapping("/{fileId}")
-    @Operation(summary = "读取文件（需要 JWT）")
-    public ResponseEntity<Resource> download(@PathVariable String fileId) {
-        Resource resource = fileService.load(fileId);
+    @Operation(summary = "读取文件（需要 JWT，按数据范围校验）")
+    public ResponseEntity<Resource> download(@PathVariable String fileId, HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        String userRole = (String) request.getAttribute("userRole");
+        Resource resource = fileService.load(fileId, userId, userRole);
         MediaType mediaType = MediaTypeFactory.getMediaType(resource)
                 .orElse(MediaType.APPLICATION_OCTET_STREAM);
         ContentDisposition disposition = ContentDisposition.inline()

@@ -12,6 +12,9 @@ public enum OperationType {
     ORDER_EDIT("ORDER_EDIT", "编辑订单信息"),
     ORDER_CANCEL("ORDER_CANCEL", "作废订单"),
     ORDER_DELIVER("ORDER_DELIVER", "交付归档"),
+    ORDER_APPROVE("ORDER_APPROVE", "订单确认终稿"),
+    ORDER_REJECT("ORDER_REJECT", "订单驳回设计稿"),
+    ORDER_DELETE("ORDER_DELETE", "删除订单"),
 
     TASK_ADD("TASK_ADD", "新增物料任务"),
     TASK_EDIT("TASK_EDIT", "修改物料任务"),

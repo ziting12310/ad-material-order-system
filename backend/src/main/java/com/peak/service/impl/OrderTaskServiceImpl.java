@@ -69,7 +69,8 @@ public class OrderTaskServiceImpl implements OrderTaskService {
     // ========================================================================
     @Override
     public void batchCreateTasks(Long orderId, List<TaskCreateItem> items, Long creatorId) {
-        int sort = 1;
+        Integer maxSort = orderTaskMapper.selectMaxSortOrderIncludingDeleted(orderId);
+        int sort = (maxSort == null ? 0 : maxSort) + 1;
         for (TaskCreateItem item : items) {
             OrderTask task = new OrderTask();
             task.setOrderId(orderId);
@@ -173,14 +174,9 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         // 已归档订单不能改
         checkNotArchived(order);
 
-        // 计算下一个 sortOrder 和 taskNo
-        List<OrderTask> existing = orderTaskMapper.selectList(
-                new LambdaQueryWrapper<OrderTask>()
-                        .eq(OrderTask::getOrderId, orderId)
-                        .orderByDesc(OrderTask::getSortOrder)
-                        .last("LIMIT 1")
-        );
-        int nextSort = existing.isEmpty() ? 1 : existing.get(0).getSortOrder() + 1;
+        // 计算下一个 sortOrder 和 taskNo（含已逻辑删除记录，避免撞唯一键）
+        Integer maxSort = orderTaskMapper.selectMaxSortOrderIncludingDeleted(orderId);
+        int nextSort = (maxSort == null ? 0 : maxSort) + 1;
         String taskNo = "T-" + String.format("%03d", nextSort);
 
         OrderTask task = new OrderTask();
@@ -202,8 +198,8 @@ public class OrderTaskServiceImpl implements OrderTaskService {
                 "新增物料任务：" + getMaterialTypeName(item.getMaterialType()),
                 operatorId, null, null);
 
-        // 同步订单状态（新增了 CREATED 任务，订单状态可能回退）
-        orderService.syncOrderStatus(orderId, operatorId);
+        // 新增任务不触发订单状态聚合：避免已推进的订单状态被回退
+        // 订单定稿 / 交付等关键动作仍会由 allTasksApproved 严格校验
 
         String designerName = task.getDesignerId() != null
                 ? userMapper.selectById(task.getDesignerId()).getName() : null;
@@ -428,12 +424,20 @@ public class OrderTaskServiceImpl implements OrderTaskService {
     @Transactional(rollbackFor = Exception.class)
     public void onVersionUploaded(Long taskId, Long versionId, Long uploadedBy) {
         OrderTask task = orderTaskMapper.selectById(taskId);
-        if (task == null) return;
+        if (task == null) {
+            throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "物料任务不存在");
+        }
+        Order order = findOrderOrThrow(task.getOrderId());
+        checkNotArchived(order);
 
         // 只有 DESIGNING 状态才推进
         if (OrderStatus.DESIGNING.getCode().equals(task.getStatus())) {
             task.setStatus(OrderStatus.WAIT_APPROVE.getCode());
-            orderTaskMapper.updateById(task);
+            int rows = orderTaskMapper.updateById(task);
+            if (rows == 0) {
+                throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
+                        "任务已被他人修改，请刷新后重试");
+            }
 
             opLog.logTask(task.getOrderId(), taskId, OperationType.TASK_UPLOAD_VERSION,
                     "上传设计版本",
@@ -441,6 +445,31 @@ public class OrderTaskServiceImpl implements OrderTaskService {
 
             orderService.syncOrderStatus(task.getOrderId(), uploadedBy);
         }
+    }
+
+    // ========================================================================
+    // 【9.1】客户提交意见后回退任务状态（WAIT_APPROVE → DESIGNING）
+    // 由 OrderFeedbackServiceImpl 提交成功后回调，不在此自动创建意见
+    // ========================================================================
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void onFeedbackSubmitted(Long taskId, Long feedbackId, Long operatorId) {
+        OrderTask task = findTaskOrThrow(taskId);
+        Order order = findOrderOrThrow(task.getOrderId());
+        checkNotArchived(order);
+
+        task.setStatus(OrderStatus.DESIGNING.getCode());
+        int rows = orderTaskMapper.updateById(task);
+        if (rows == 0) {
+            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
+                    "任务已被他人修改，请刷新后重试");
+        }
+
+        opLog.logTask(task.getOrderId(), taskId, OperationType.TASK_FEEDBACK,
+                "提交修改意见（反馈ID " + feedbackId + "）",
+                operatorId, null, null);
+
+        orderService.syncOrderStatus(task.getOrderId(), operatorId);
     }
 
     // ========================================================================
@@ -458,10 +487,10 @@ public class OrderTaskServiceImpl implements OrderTaskService {
                     OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
         }
 
-        // 权限：BL 或 AM（AM 是客户经理，记录客户确认结果）
+        // 权限：任务定稿仅业务负责人（BL）
         String role = getUserRole(operatorId);
-        if (!UserRole.BL.getCode().equals(role) && !UserRole.AM.getCode().equals(role)) {
-            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "需要业务负责人或客户经理角色");
+        if (!UserRole.BL.getCode().equals(role)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "仅业务负责人可以确认任务定稿");
         }
 
         checkNotArchived(order);
@@ -477,8 +506,18 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         if (latest == null) {
             throw new BusinessException(ErrorCode.DESIGN_VERSION_NOT_FOUND, "设计稿版本不存在");
         }
+        // 同一任务只保留一个终稿，先清除旧的 final 标记
+        designVersionMapper.update(null,
+                new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<DesignVersion>()
+                        .eq(DesignVersion::getTaskId, taskId)
+                        .eq(DesignVersion::getFinalVersion, 1)
+                        .set(DesignVersion::getFinalVersion, 0));
         latest.setFinalVersion(1);
-        designVersionMapper.updateById(latest);
+        int versionRows = designVersionMapper.updateById(latest);
+        if (versionRows == 0) {
+            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
+                    "设计版本已被他人修改，请刷新后重试");
+        }
 
         // 处理所有 PENDING Feedback
         LocalDateTime now = LocalDateTime.now();
@@ -531,8 +570,8 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         }
 
         String role = getUserRole(operatorId);
-        if (!UserRole.BL.getCode().equals(role) && !UserRole.AM.getCode().equals(role)) {
-            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "需要业务负责人或客户经理角色");
+        if (!UserRole.BL.getCode().equals(role)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "仅业务负责人可以驳回任务");
         }
 
         checkNotArchived(order);
@@ -584,7 +623,8 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         );
         if (tasks.isEmpty()) return false;
         return tasks.stream()
-                .allMatch(t -> OrderStatus.APPROVED.getCode().equals(t.getStatus()));
+                .allMatch(t -> OrderStatus.APPROVED.getCode().equals(t.getStatus())
+                        || OrderStatus.DELIVERED.getCode().equals(t.getStatus()));
     }
 
     // ========================================================================

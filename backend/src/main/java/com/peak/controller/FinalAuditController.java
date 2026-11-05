@@ -1,6 +1,7 @@
 package com.peak.controller;
 
 import com.peak.service.FinalAuditService;
+import com.peak.vo.AuditStatsVO;
 import com.peak.vo.CursorPage;
 import com.peak.vo.OperationLogVO;
 import com.peak.vo.OrderTaskVO;
@@ -51,6 +52,33 @@ public class FinalAuditController {
         String role = (String) request.getAttribute("userRole");
         return ResultVO.success(finalAuditService.listPendingTasks(
                 userId, role, cursor, limit, materialType, keyword));
+    }
+
+    /**
+     * 待审核任务数量
+     * GET /api/v1/audit/pending/count
+     */
+    @GetMapping("/pending/count")
+    @Operation(summary = "待审核任务数量")
+    public ResultVO<Long> countPendingTasks(
+            @RequestParam(required = false) String materialType,
+            @RequestParam(required = false) String keyword,
+            HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        String role = (String) request.getAttribute("userRole");
+        return ResultVO.success(finalAuditService.countPendingTasks(userId, role, materialType, keyword));
+    }
+
+    /**
+     * 审核统计：待审核 / 已定稿 / 驳回次数
+     * GET /api/v1/audit/stats
+     */
+    @GetMapping("/stats")
+    @Operation(summary = "审核统计（待审核 / 已定稿 / 驳回次数）")
+    public ResultVO<AuditStatsVO> getAuditStats(HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        String role = (String) request.getAttribute("userRole");
+        return ResultVO.success(finalAuditService.getAuditStats(userId, role));
     }
 
     /**

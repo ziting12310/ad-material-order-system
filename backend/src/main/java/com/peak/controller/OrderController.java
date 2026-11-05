@@ -29,6 +29,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -112,7 +113,7 @@ public class OrderController {
      * </pre></p>
      */
     @PostMapping
-    @RequireRole({UserRole.AM, UserRole.BL, UserRole.DS})
+    @RequireRole({UserRole.AM})
     @Operation(summary = "创建订单")
     public ResultVO<OrderCreateResponseVO> createOrder(@Valid @RequestBody OrderCreateRequest dto,
                                                        HttpServletRequest request) {
@@ -125,7 +126,7 @@ public class OrderController {
      * PUT /api/v1/orders/{id}
      */
     @PutMapping("/{id}")
-    @RequireRole({UserRole.AM, UserRole.BL, UserRole.DS})
+    @RequireRole({UserRole.AM, UserRole.BL})
     @Operation(summary = "编辑订单（仅已登记状态可编辑）")
     public ResultVO<OrderCreateResponseVO> updateOrder(@PathVariable Long id,
                                                        @Valid @RequestBody OrderUpdateRequest dto,
@@ -142,6 +143,7 @@ public class OrderController {
      * <pre>{"designerId": 3, "assignRemark": "优先处理", "version": 0}</pre></p>
      */
     @PutMapping("/{id}/assign")
+    @RequireRole({UserRole.BL})
     @Operation(summary = "分派设计人员（CREATED → ASSIGNED）")
     public ResultVO<OrderAssignResponseVO> assignOrder(@PathVariable Long id,
                                                        @Valid @RequestBody OrderAssignRequest dto,
@@ -157,6 +159,7 @@ public class OrderController {
      * <p>请求 JSON：<pre>{"version": 1}</pre></p>
      */
     @PutMapping("/{id}/accept")
+    @RequireRole({UserRole.DS})
     @Operation(summary = "设计师接单（ASSIGNED → DESIGNING）")
     public ResultVO<OrderStatusUpdateResponseVO> acceptTask(@PathVariable Long id,
                                                             @Valid @RequestBody VersionOnlyRequest dto,
@@ -170,7 +173,7 @@ public class OrderController {
      * PUT /api/v1/orders/{id}/reject
      */
     @PutMapping("/{id}/reject")
-    @RequireRole({UserRole.AM, UserRole.BL})
+    @RequireRole({UserRole.BL})
     @Operation(summary = "驳回设计稿（WAIT_APPROVE → DESIGNING）")
     public ResultVO<OrderRejectResponseVO> rejectDesign(@PathVariable Long id,
                                                        @Valid @RequestBody OrderRejectRequest dto,
@@ -184,7 +187,7 @@ public class OrderController {
      * PUT /api/v1/orders/{id}/approve
      */
     @PutMapping("/{id}/approve")
-    @RequireRole({UserRole.AM, UserRole.BL})
+    @RequireRole({UserRole.BL})
     @Operation(summary = "确认终稿（WAIT_APPROVE → APPROVED）")
     public ResultVO<OrderApproveResponseVO> approveFinal(@PathVariable Long id,
                                                           @Valid @RequestBody OrderApproveRequest dto,
@@ -198,6 +201,7 @@ public class OrderController {
      * PUT /api/v1/orders/{id}/deliver
      */
     @PutMapping("/{id}/deliver")
+    @RequireRole({UserRole.BL})
     @Operation(summary = "标记交付（APPROVED → DELIVERED + 归档）")
     public ResultVO<OrderDeliverResponseVO> markDelivered(@PathVariable Long id,
                                                           @Valid @RequestBody OrderDeliverRequest dto,
@@ -211,6 +215,7 @@ public class OrderController {
      * PUT /api/v1/orders/{id}/cancel
      */
     @PutMapping("/{id}/cancel")
+    @RequireRole({UserRole.AM, UserRole.BL})
     @Operation(summary = "作废订单（任意非终态 → CANCELLED）")
     public ResultVO<OrderStatusUpdateResponseVO> cancelOrder(@PathVariable Long id,
                                                              @Valid @RequestBody OrderCancelRequest dto,
@@ -224,12 +229,26 @@ public class OrderController {
      * PUT /api/v1/orders/{id}/confirm
      */
     @PutMapping("/{id}/confirm")
+    @RequireRole({UserRole.BL})
     @Operation(summary = "确认物料清单（BL确认后订单进入可分派状态）")
     public ResultVO<Void> confirmOrder(@PathVariable Long id,
                                         @Valid @RequestBody OrderConfirmDTO dto,
                                         HttpServletRequest request) {
         Long operatorId = (Long) request.getAttribute("userId");
         orderService.confirmOrder(id, dto, operatorId);
+        return ResultVO.success(null);
+    }
+
+    /**
+     * 删除订单 — 仅 BL 且订单处于 CREATED
+     * DELETE /api/v1/orders/{id}
+     */
+    @DeleteMapping("/{id}")
+    @RequireRole({UserRole.BL})
+    @Operation(summary = "删除订单（仅已登记状态，逻辑删除）")
+    public ResultVO<Void> deleteOrder(@PathVariable Long id, HttpServletRequest request) {
+        Long operatorId = (Long) request.getAttribute("userId");
+        orderService.deleteOrder(id, operatorId);
         return ResultVO.success(null);
     }
 

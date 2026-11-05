@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 public class DesignVersionResponseVO {
     private Long id;
     private Long taskId;
+    private String fileId;
     private String versionNo;
     private String fileUrl;
     private String fileName;

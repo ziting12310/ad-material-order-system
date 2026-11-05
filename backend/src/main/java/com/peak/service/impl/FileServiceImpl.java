@@ -3,11 +3,18 @@ package com.peak.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.peak.common.constants.ErrorCode;
+import com.peak.common.enums.UserRole;
 import com.peak.dto.PresignRequest;
 import com.peak.dto.ReferenceFileConfirmRequest;
+import com.peak.entity.DesignVersion;
+import com.peak.entity.Order;
 import com.peak.entity.OrderReferenceFile;
+import com.peak.entity.OrderTask;
 import com.peak.exception.BusinessException;
+import com.peak.mapper.DesignVersionMapper;
+import com.peak.mapper.OrderMapper;
 import com.peak.mapper.OrderReferenceFileMapper;
+import com.peak.mapper.OrderTaskMapper;
 import com.peak.service.FileService;
 import com.peak.vo.PresignResponseVO;
 import com.peak.vo.ReferenceFileVO;
@@ -58,6 +65,9 @@ public class FileServiceImpl implements FileService {
     private static final Pattern FILE_ID_PATTERN = Pattern.compile("^[0-9a-f]{32}\\.[a-z0-9]{2,5}$");
 
     private final OrderReferenceFileMapper orderReferenceFileMapper;
+    private final DesignVersionMapper designVersionMapper;
+    private final OrderMapper orderMapper;
+    private final OrderTaskMapper orderTaskMapper;
     private final ObjectMapper objectMapper;
 
     @Value("${amoms.file.storage-dir:./uploads}")
@@ -165,13 +175,75 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
-    public Resource load(String fileId) {
+    public Resource load(String fileId, Long userId, String userRole) {
         Path path = filePath(fileId);
         if (!Files.exists(path)) {
             throw new BusinessException(ErrorCode.PARAM_VALIDATION_ERROR,
                     "文件 [%s] 不存在或尚未上传", fileId);
         }
+
+        // 数据范围校验：按文件绑定的订单 / 任务判断
+        DesignVersion version = designVersionMapper.selectOne(
+                new LambdaQueryWrapper<DesignVersion>()
+                        .eq(DesignVersion::getFileId, fileId)
+                        .orderByAsc(DesignVersion::getId)
+                        .last("LIMIT 1"));
+        Long orderId;
+        Long taskId;
+        if (version != null) {
+            orderId = version.getOrderId();
+            taskId = version.getTaskId();
+        } else {
+            OrderReferenceFile ref = orderReferenceFileMapper.selectOne(
+                    new LambdaQueryWrapper<OrderReferenceFile>()
+                            .eq(OrderReferenceFile::getFileId, fileId)
+                            .orderByAsc(OrderReferenceFile::getId)
+                            .last("LIMIT 1"));
+            if (ref == null) {
+                // 未绑定任何业务记录：仅 BL 可读取
+                if (!UserRole.BL.getCode().equals(userRole)) {
+                    throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权读取该文件");
+                }
+                return new FileSystemResource(path);
+            }
+            orderId = ref.getOrderId();
+            taskId = ref.getTaskId();
+        }
+
+        checkFileScope(orderId, taskId, userId, userRole);
         return new FileSystemResource(path);
+    }
+
+    /** 文件读取数据范围：BL 全量；AM 本人创建订单；DS 本人被分派的任务 */
+    private void checkFileScope(Long orderId, Long taskId, Long userId, String userRole) {
+        if (UserRole.BL.getCode().equals(userRole)) {
+            return;
+        }
+        Order order = orderId != null ? orderMapper.selectById(orderId) : null;
+        if (order == null) {
+            throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权读取该文件");
+        }
+        if (UserRole.AM.getCode().equals(userRole) && userId != null
+                && userId.equals(order.getCreatedBy())) {
+            return;
+        }
+        if (UserRole.DS.getCode().equals(userRole) && userId != null) {
+            if (taskId != null) {
+                OrderTask task = orderTaskMapper.selectById(taskId);
+                if (task != null && userId.equals(task.getDesignerId())) {
+                    return;
+                }
+            } else {
+                Long assigned = orderTaskMapper.selectCount(
+                        new LambdaQueryWrapper<OrderTask>()
+                                .eq(OrderTask::getOrderId, orderId)
+                                .eq(OrderTask::getDesignerId, userId));
+                if (assigned != null && assigned > 0) {
+                    return;
+                }
+            }
+        }
+        throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权读取该文件");
     }
 
     @Override
@@ -195,7 +267,7 @@ public class FileServiceImpl implements FileService {
         FileMeta meta = readMeta(dto.getFileId());
         long fileSize = meta != null ? meta.fileSize() : sizeOf(path);
         String fileName = meta != null ? meta.fileName() : dto.getFileId();
-        Long taskId = dto.getTaskId() != null ? dto.getTaskId() : dto.getOrderId();
+        Long taskId = dto.getTaskId();
 
         List<OrderReferenceFile> existing = orderReferenceFileMapper.selectList(
                 new LambdaQueryWrapper<OrderReferenceFile>()

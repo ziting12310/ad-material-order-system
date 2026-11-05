@@ -60,6 +60,8 @@ public final class ErrorCode {
     public static final String ORDER_VERSION_CONFLICT = "ORDER_VERSION_CONFLICT";
     /** 订单编号重复 */
     public static final String ORDER_NO_DUPLICATE = "ORDER_NO_DUPLICATE";
+    /** 物料任务已分派，不能重复分派 */
+    public static final String ORDER_ALREADY_ASSIGNED = "ORDER_ALREADY_ASSIGNED";
 
     // ---------- 413 Payload Too Large ----------
     /** 上传文件超过大小限制 */
@@ -70,6 +72,8 @@ public final class ErrorCode {
     public static final String ORDER_STATUS_CONFLICT = "ORDER_STATUS_CONFLICT";
     /** 设计人员角色不符合（分派的用户不是 DS 角色） */
     public static final String DESIGNER_ROLE_INVALID = "DESIGNER_ROLE_INVALID";
+    /** 上传新版本时没有待处理修改意见 */
+    public static final String NO_PENDING_FEEDBACK = "NO_PENDING_FEEDBACK";
 
     // ---------- 500 Internal Server Error ----------
     /** 通用业务异常 */

@@ -26,4 +26,11 @@ public interface AuthService {
      * <p>用于 JWT 拦截器解析 Token 后，装载当前用户上下文</p>
      */
     UserInfoVO getUserInfo(Long userId);
+
+    /**
+     * 退出登录：把当前 Token 加入黑名单，直到其自然过期
+     *
+     * @param token 不带 Bearer 前缀的 JWT；为空或已失效时静默忽略
+     */
+    void logout(String token);
 }

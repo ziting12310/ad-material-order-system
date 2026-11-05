@@ -9,13 +9,16 @@ import com.peak.dto.OrderFeedbackCreateRequest;
 import com.peak.entity.DesignVersion;
 import com.peak.entity.Order;
 import com.peak.entity.OrderFeedback;
+import com.peak.entity.OrderTask;
 import com.peak.entity.User;
 import com.peak.exception.BusinessException;
 import com.peak.mapper.DesignVersionMapper;
 import com.peak.mapper.OrderFeedbackMapper;
 import com.peak.mapper.OrderMapper;
+import com.peak.mapper.OrderTaskMapper;
 import com.peak.mapper.UserMapper;
 import com.peak.service.OrderFeedbackService;
+import com.peak.service.OrderTaskService;
 import com.peak.vo.OrderFeedbackResponseVO;
 import com.peak.vo.OrderFeedbackVO;
 import lombok.RequiredArgsConstructor;
@@ -51,19 +54,28 @@ import java.util.stream.Collectors;
 public class OrderFeedbackServiceImpl implements OrderFeedbackService {
 
     private final OrderMapper orderMapper;
+    private final OrderTaskMapper orderTaskMapper;
     private final OrderFeedbackMapper orderFeedbackMapper;
     private final DesignVersionMapper designVersionMapper;
     private final UserMapper userMapper;
+    private final OrderTaskService orderTaskService;
 
     private static final Pattern VERSION_NO_PATTERN = Pattern.compile("V(\\d+)");
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OrderFeedbackResponseVO submitFeedback(OrderFeedbackCreateRequest dto, Long submitterId) {
-        // ① 查订单
+        // ① 查订单与任务：多物料模型下 taskId 必填且必须属于该订单
         Order order = orderMapper.selectById(dto.getOrderId());
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在");
+        }
+        OrderTask task = orderTaskMapper.selectById(dto.getTaskId());
+        if (task == null || !order.getId().equals(task.getOrderId())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "物料任务不存在或不属于该订单");
+        }
+        if (Integer.valueOf(1).equals(order.getArchived())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT, "订单已归档，不能提交修改意见");
         }
 
         // ② 角色校验：仅客户经理（AM）/ 业务负责人（BL）可提交修改意见
@@ -74,26 +86,31 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
                     "仅客户经理（AM）或业务负责人（BL）可以提交修改意见");
         }
 
-        // ③ 状态校验：仅 WAIT_APPROVE 可提修改意见（定稿后不能再提）
-        if (!OrderStatus.WAIT_APPROVE.getCode().equals(order.getStatus())) {
+        if (UserRole.AM.getCode().equals(submitter.getRole())
+                && !submitterId.equals(order.getCreatedBy())) {
+            throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "只能给自己的订单提交修改意见");
+        }
+
+        // ③ 状态校验：仅任务 WAIT_APPROVE 可提修改意见
+        if (!OrderStatus.WAIT_APPROVE.getCode().equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "当前订单状态为 [%s]，提交修改意见需要状态为 [待定稿]",
-                    OrderStatus.of(order.getStatus()) != null
-                            ? OrderStatus.of(order.getStatus()).getLabel() : order.getStatus());
+                    "当前任务状态为 [%s]，提交修改意见需要状态为 [待定稿]",
+                    OrderStatus.of(task.getStatus()) != null
+                            ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
         }
 
-        // ③ 乐观锁校验
-        if (!order.getVersion().equals(dto.getVersion())) {
+        // ④ 乐观锁校验：使用任务版本号
+        if (!task.getVersion().equals(dto.getVersion())) {
             throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
-                    "数据已变更，请刷新后重试（当前版本 %d，请求版本 %d）",
-                    order.getVersion(), dto.getVersion());
+                    "任务已变更，请刷新后重试（当前版本 %d，请求版本 %d）",
+                    task.getVersion(), dto.getVersion());
         }
 
-        // ④ XSS 清洗意见内容（ARCH §5.1 SEC-001）
+        // ⑤ XSS 清洗意见内容（ARCH §5.1 SEC-001）
         String safeContent = StringEscapeUtils.escapeHtml4(dto.getContent());
 
-        // ⑤ 查最新设计稿版本（按版本号数字取最大）
-        DesignVersion latest = findLatestVersion(order.getId());
+        // ⑥ 查该任务最新设计稿版本（按版本号数字取最大）
+        DesignVersion latest = findLatestVersion(task.getId());
         if (latest == null) {
             throw new BusinessException(ErrorCode.DESIGN_VERSION_NOT_FOUND,
                     "当前订单还没有设计稿版本，无法提交修改意见");
@@ -103,7 +120,7 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
         LocalDateTime now = LocalDateTime.now();
         OrderFeedback feedback = new OrderFeedback();
         feedback.setOrderId(order.getId());
-        feedback.setTaskId(dto.getTaskId() != null ? dto.getTaskId() : order.getId());
+        feedback.setTaskId(task.getId());
         feedback.setVersionId(latest.getId());
         feedback.setContent(safeContent);
         feedback.setStatus(FeedbackStatus.PENDING.getCode());
@@ -111,14 +128,10 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
         feedback.setSubmittedAt(now);
         orderFeedbackMapper.insert(feedback);
 
-        // ⑦ 订单状态回退为 DESIGNING（触发设计人员继续修改）
-        order.setStatus(OrderStatus.DESIGNING.getCode());
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改");
-        }
+        // ⑦ 交由任务状态机回退任务为 DESIGNING，并聚合订单状态
+        orderTaskService.onFeedbackSubmitted(task.getId(), feedback.getId(), submitterId);
 
-        // ⑧ 组装响应
+        Order refreshedOrder = orderMapper.selectById(order.getId());
         OrderFeedbackResponseVO resp = new OrderFeedbackResponseVO();
         resp.setId(feedback.getId());
         resp.setTaskId(feedback.getTaskId());
@@ -126,8 +139,8 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
         resp.setStatus(feedback.getStatus());
         resp.setVersionId(latest.getId());
         resp.setSubmittedAt(now);
-        resp.setOrderStatus(order.getStatus());
-        resp.setOrderVersion(order.getVersion());
+        resp.setOrderStatus(refreshedOrder.getStatus());
+        resp.setOrderVersion(refreshedOrder.getVersion());
         return resp;
     }
 
@@ -145,7 +158,7 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
             }
             resolvedOrderId = sample.getOrderId();
         }
-        Order order = requireOrderForRead(resolvedOrderId, userId, userRole);
+        Order order = requireOrderForRead(resolvedOrderId, taskId, userId, userRole);
 
         LambdaQueryWrapper<OrderFeedback> wrapper = new LambdaQueryWrapper<OrderFeedback>()
                 .eq(OrderFeedback::getOrderId, order.getId());
@@ -173,9 +186,9 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
                 .collect(Collectors.toList());
     }
 
-    private DesignVersion findLatestVersion(Long orderId) {
+    private DesignVersion findLatestVersion(Long taskId) {
         List<DesignVersion> versions = designVersionMapper.selectList(
-                new LambdaQueryWrapper<DesignVersion>().eq(DesignVersion::getOrderId, orderId));
+                new LambdaQueryWrapper<DesignVersion>().eq(DesignVersion::getTaskId, taskId));
         return versions.stream()
                 .max(Comparator.comparingInt(v -> parseVersionNo(v.getVersionNo())))
                 .orElse(null);
@@ -189,7 +202,7 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
         return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
     }
 
-    private Order requireOrderForRead(Long orderId, Long userId, String userRole) {
+    private Order requireOrderForRead(Long orderId, Long taskId, Long userId, String userRole) {
         if (orderId == null) {
             throw new BusinessException(ErrorCode.PARAM_VALIDATION_ERROR,
                     "orderId 或 taskId 至少传一个");
@@ -198,11 +211,17 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在");
         }
-        checkViewScope(order, userId, userRole);
+        if (taskId != null) {
+            OrderTask task = orderTaskMapper.selectById(taskId);
+            if (task == null || !order.getId().equals(task.getOrderId())) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "物料任务不存在或不属于该订单");
+            }
+        }
+        checkViewScope(order, taskId, userId, userRole);
         return order;
     }
 
-    private void checkViewScope(Order order, Long userId, String userRole) {
+    private void checkViewScope(Order order, Long taskId, Long userId, String userRole) {
         if (UserRole.BL.getCode().equals(userRole)) {
             return;
         }
@@ -210,9 +229,21 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
                 && userId.equals(order.getCreatedBy())) {
             return;
         }
-        if (UserRole.DS.getCode().equals(userRole) && userId != null
-                && userId.equals(order.getDesignerId())) {
-            return;
+        if (UserRole.DS.getCode().equals(userRole) && userId != null) {
+            if (taskId != null) {
+                OrderTask task = orderTaskMapper.selectById(taskId);
+                if (task != null && userId.equals(task.getDesignerId())) {
+                    return;
+                }
+            } else {
+                Long assigned = orderTaskMapper.selectCount(
+                        new LambdaQueryWrapper<OrderTask>()
+                                .eq(OrderTask::getOrderId, order.getId())
+                                .eq(OrderTask::getDesignerId, userId));
+                if (assigned != null && assigned > 0) {
+                    return;
+                }
+            }
         }
         throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权查看该订单的修改意见");
     }

@@ -86,6 +86,9 @@ public interface OrderService {
     /** 作废订单 — API.md §3.10 CancelOrder；任意非终态 → CANCELLED（T-10） */
     OrderStatusUpdateResponseVO cancelOrder(Long orderId, OrderCancelRequest dto, Long operatorId);
 
+    /** 删除订单 — 仅 BL 可删除 CREATED 状态订单（逻辑删除） */
+    void deleteOrder(Long orderId, Long operatorId);
+
     // ---------- 多物料模型新增 ----------
 
     /**

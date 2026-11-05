@@ -28,6 +28,9 @@ public interface OrderTaskService {
 
     void onVersionUploaded(Long taskId, Long versionId, Long uploadedBy);
 
+    /** 客户提交修改意见后回退任务状态（WAIT_APPROVE → DESIGNING） */
+    void onFeedbackSubmitted(Long taskId, Long feedbackId, Long operatorId);
+
     OrderTaskVO approveTask(Long taskId, String remark, Integer version, Long operatorId);
 
     OrderTaskVO rejectTask(Long taskId, String rejectNote, Integer version, Long operatorId);

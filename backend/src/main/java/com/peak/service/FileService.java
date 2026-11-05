@@ -21,8 +21,8 @@ public interface FileService {
     /** 接收上传文件并落盘；传 orderId 时同时回填参考文件元数据 */
     PresignResponseVO upload(String fileId, MultipartFile file, Long orderId, Long taskId, Long userId);
 
-    /** 按 fileId 读取文件 */
-    Resource load(String fileId);
+    /** 按 fileId 读取文件（带数据范围校验） */
+    Resource load(String fileId, Long userId, String userRole);
 
     /** 推导文件访问 URL（存库用） */
     String resolveAccessUrl(String fileId);

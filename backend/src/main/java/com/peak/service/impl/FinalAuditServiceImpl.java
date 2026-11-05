@@ -16,6 +16,7 @@ import com.peak.mapper.OrderOperationLogMapper;
 import com.peak.mapper.OrderTaskMapper;
 import com.peak.mapper.UserMapper;
 import com.peak.service.FinalAuditService;
+import com.peak.vo.AuditStatsVO;
 import com.peak.vo.CursorPage;
 import com.peak.vo.OperationLogVO;
 import com.peak.vo.OrderTaskVO;
@@ -138,6 +139,89 @@ public class FinalAuditServiceImpl implements FinalAuditService {
         return new CursorPage<>(voList, nextCursor, hasMore);
     }
 
+    @Override
+    public long countPendingTasks(Long userId, String userRole,
+                                  String materialType, String keyword) {
+        LambdaQueryWrapper<OrderTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderTask::getStatus, OrderStatus.WAIT_APPROVE.getCode());
+
+        if (UserRole.AM.getCode().equals(userRole)) {
+            List<Long> myOrderIds = orderMapper.selectList(
+                    new LambdaQueryWrapper<Order>()
+                            .eq(Order::getCreatedBy, userId)
+                            .select(Order::getId)
+            ).stream().map(Order::getId).toList();
+            if (myOrderIds.isEmpty()) {
+                return 0L;
+            }
+            wrapper.in(OrderTask::getOrderId, myOrderIds);
+        } else if (UserRole.DS.getCode().equals(userRole)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "设计人员无审核权限");
+        }
+
+        if (materialType != null && !materialType.isBlank()) {
+            wrapper.eq(OrderTask::getMaterialType, materialType);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            String safeKeyword = StringEscapeUtils.escapeHtml4(keyword);
+            wrapper.and(w -> w.like(OrderTask::getTaskNo, safeKeyword)
+                    .or().like(OrderTask::getSpecification, safeKeyword));
+        }
+        Long count = orderTaskMapper.selectCount(wrapper);
+        return count != null ? count : 0L;
+    }
+
+    @Override
+    public AuditStatsVO getAuditStats(Long userId, String userRole) {
+        AuditStatsVO stats = new AuditStatsVO();
+
+        List<Long> scopeOrderIds = null;
+        if (UserRole.AM.getCode().equals(userRole)) {
+            scopeOrderIds = orderMapper.selectList(
+                    new LambdaQueryWrapper<Order>()
+                            .eq(Order::getCreatedBy, userId)
+                            .select(Order::getId)
+            ).stream().map(Order::getId).toList();
+            if (scopeOrderIds.isEmpty()) {
+                return stats;
+            }
+        } else if (UserRole.DS.getCode().equals(userRole)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "设计人员无审核权限");
+        }
+
+        // 待审核
+        LambdaQueryWrapper<OrderTask> pending = new LambdaQueryWrapper<>();
+        pending.eq(OrderTask::getStatus, OrderStatus.WAIT_APPROVE.getCode());
+        if (scopeOrderIds != null) {
+            pending.in(OrderTask::getOrderId, scopeOrderIds);
+        }
+        stats.setPendingCount(nullSafe(orderTaskMapper.selectCount(pending)));
+
+        // 已定稿
+        LambdaQueryWrapper<OrderTask> approved = new LambdaQueryWrapper<>();
+        approved.in(OrderTask::getStatus,
+                OrderStatus.APPROVED.getCode(), OrderStatus.DELIVERED.getCode());
+        if (scopeOrderIds != null) {
+            approved.in(OrderTask::getOrderId, scopeOrderIds);
+        }
+        stats.setApprovedCount(nullSafe(orderTaskMapper.selectCount(approved)));
+
+        // 驳回次数（按审核操作日志统计）
+        LambdaQueryWrapper<OrderOperationLog> rejected = new LambdaQueryWrapper<>();
+        rejected.in(OrderOperationLog::getOperationType,
+                OperationType.TASK_REJECT.getCode(), OperationType.ORDER_REJECT.getCode());
+        if (scopeOrderIds != null) {
+            rejected.in(OrderOperationLog::getOrderId, scopeOrderIds);
+        }
+        stats.setRejectedCount(nullSafe(operationLogMapper.selectCount(rejected)));
+
+        return stats;
+    }
+
+    private long nullSafe(Long value) {
+        return value != null ? value : 0L;
+    }
+
     // ========================================================================
     // 【2】我参与的审核记录
     // ========================================================================
@@ -191,6 +275,15 @@ public class FinalAuditServiceImpl implements FinalAuditService {
         }
         if (UserRole.AM.getCode().equals(userRole) && !userId.equals(order.getCreatedBy())) {
             throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权查看他人订单");
+        }
+        if (UserRole.DS.getCode().equals(userRole)) {
+            Long assigned = orderTaskMapper.selectCount(
+                    new LambdaQueryWrapper<OrderTask>()
+                            .eq(OrderTask::getOrderId, orderId)
+                            .eq(OrderTask::getDesignerId, userId));
+            if (assigned == null || assigned == 0) {
+                throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权查看未分派给自己的订单日志");
+            }
         }
 
         List<String> auditTypes = List.of(

@@ -1,5 +1,7 @@
 package com.peak.controller;
 
+import com.peak.common.annotation.RequireRole;
+import com.peak.common.enums.UserRole;
 import com.peak.dto.TaskAssignDTO;
 import com.peak.dto.TaskCreateItem;
 import com.peak.dto.TaskUpdateDTO;
@@ -52,6 +54,7 @@ public class OrderTaskController {
     }
 
     @PostMapping
+    @RequireRole({UserRole.AM, UserRole.BL})
     @Operation(summary = "新增物料任务")
     public ResultVO<OrderTaskVO> addTask(@PathVariable Long orderId,
                                           @Valid @RequestBody TaskCreateItem dto,
@@ -61,6 +64,7 @@ public class OrderTaskController {
     }
 
     @PutMapping("/{taskId}")
+    @RequireRole({UserRole.AM, UserRole.BL})
     @Operation(summary = "修改物料任务（仅 CREATED 可改）")
     public ResultVO<OrderTaskVO> updateTask(@PathVariable Long orderId,
                                              @PathVariable Long taskId,
@@ -71,6 +75,7 @@ public class OrderTaskController {
     }
 
     @DeleteMapping("/{taskId}")
+    @RequireRole({UserRole.AM, UserRole.BL})
     @Operation(summary = "删除物料任务（仅 CREATED 可删）")
     public ResultVO<Void> removeTask(@PathVariable Long orderId,
                                       @PathVariable Long taskId,
@@ -81,6 +86,7 @@ public class OrderTaskController {
     }
 
     @PutMapping("/{taskId}/assign")
+    @RequireRole({UserRole.BL})
     @Operation(summary = "分派设计人员（CREATED → ASSIGNED）")
     public ResultVO<OrderTaskVO> assignTask(@PathVariable Long orderId,
                                              @PathVariable Long taskId,
@@ -91,6 +97,7 @@ public class OrderTaskController {
     }
 
     @PutMapping("/{taskId}/accept")
+    @RequireRole({UserRole.DS})
     @Operation(summary = "设计师接单（ASSIGNED → DESIGNING）")
     public ResultVO<OrderStatusUpdateResponseVO> acceptTask(@PathVariable Long orderId,
                                                               @PathVariable Long taskId,

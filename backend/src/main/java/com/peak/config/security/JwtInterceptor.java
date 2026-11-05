@@ -32,6 +32,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class JwtInterceptor implements HandlerInterceptor {
 
     private final JwtUtil jwtUtil;
+    private final TokenBlacklist tokenBlacklist;
 
     @Value("${amoms.jwt.header}")
     private String headerName;
@@ -53,6 +54,12 @@ public class JwtInterceptor implements HandlerInterceptor {
             return false;
         }
         String token = authHeader.substring(prefix.length()).trim();
+
+        // ②.5 已登出的 Token 立即失效
+        if (tokenBlacklist.contains(token)) {
+            write401(response, ErrorCode.TOKEN_INVALID, "登录状态已失效，请重新登录");
+            return false;
+        }
 
         // ③ 委托 JwtUtil 解析校验
         try {

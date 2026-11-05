@@ -26,6 +26,13 @@ public interface FinalAuditService {
                                              String cursor, int limit,
                                              String materialType, String keyword);
 
+    /** 待审核任务数量（与 listPendingTasks 同一数据范围与过滤条件） */
+    long countPendingTasks(Long userId, String userRole,
+                           String materialType, String keyword);
+
+    /** 审核统计：待审核 / 已定稿 / 驳回次数（按角色数据范围） */
+    com.peak.vo.AuditStatsVO getAuditStats(Long userId, String userRole);
+
     /**
      * 我参与的审核记录（我作为操作人的所有审核相关操作）
      * 包括：TASK_APPROVE、TASK_REJECT、ORDER_DELIVER 等

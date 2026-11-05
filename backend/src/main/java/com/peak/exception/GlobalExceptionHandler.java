@@ -79,11 +79,13 @@ public class GlobalExceptionHandler {
             // 409
             Map.entry(ErrorCode.ORDER_VERSION_CONFLICT, HttpStatus.CONFLICT),
             Map.entry(ErrorCode.ORDER_NO_DUPLICATE, HttpStatus.CONFLICT),
+            Map.entry(ErrorCode.ORDER_ALREADY_ASSIGNED, HttpStatus.CONFLICT),
             // 413
             Map.entry(ErrorCode.FILE_TOO_LARGE, HttpStatus.PAYLOAD_TOO_LARGE),
             // 422
             Map.entry(ErrorCode.ORDER_STATUS_CONFLICT, HttpStatus.UNPROCESSABLE_ENTITY),
             Map.entry(ErrorCode.DESIGNER_ROLE_INVALID, HttpStatus.UNPROCESSABLE_ENTITY),
+            Map.entry(ErrorCode.NO_PENDING_FEEDBACK, HttpStatus.UNPROCESSABLE_ENTITY),
             // 500
             Map.entry(ErrorCode.BUSINESS_ERROR, HttpStatus.INTERNAL_SERVER_ERROR),
             Map.entry(ErrorCode.INTERNAL_ERROR, HttpStatus.INTERNAL_SERVER_ERROR)

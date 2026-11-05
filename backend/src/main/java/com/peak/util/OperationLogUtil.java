@@ -7,7 +7,10 @@ import com.peak.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
 
 @Slf4j
@@ -49,10 +52,24 @@ public class OperationLogUtil {
             }
 
             entry.setOperatedAt(LocalDateTime.now());
+            entry.setClientIp(currentClientIp());
             logMapper.insert(entry);
         } catch (Exception e) {
             log.warn("操作日志写入失败：orderId={}, taskId={}, opType={}, error={}",
                     orderId, taskId, opType, e.getMessage());
         }
+    }
+
+    /** 取当前请求的真实客户端 IP（支持 X-Forwarded-For） */
+    private String currentClientIp() {
+        ServletRequestAttributes attrs =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attrs == null) return null;
+        HttpServletRequest request = attrs.getRequest();
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

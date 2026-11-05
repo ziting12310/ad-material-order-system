@@ -1,5 +1,7 @@
 package com.peak.controller;
 
+import com.peak.common.annotation.RequireRole;
+import com.peak.common.enums.UserRole;
 import com.peak.dto.DesignVersionCreateRequest;
 import com.peak.service.DesignVersionService;
 import com.peak.vo.DesignVersionDiffVO;
@@ -58,6 +60,7 @@ public class DesignVersionController {
      * </pre></p>
      */
     @PostMapping
+    @RequireRole({UserRole.DS})
     @Operation(summary = "上传设计稿（首版 / 新版本共用）")
     public ResultVO<DesignVersionResponseVO> uploadDesignVersion(
             @Valid @RequestBody DesignVersionCreateRequest dto,

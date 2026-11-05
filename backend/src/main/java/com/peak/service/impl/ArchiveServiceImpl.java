@@ -53,10 +53,11 @@ public class ArchiveServiceImpl implements ArchiveService {
         int effectiveLimit = Math.min(Math.max(limit, 1), 100);
 
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
-        wrapper.gt(Order::getId, lastId);
+        if (lastId > 0) {
+            wrapper.lt(Order::getId, lastId);
+        }
         wrapper.eq(Order::getArchived, 1);
         wrapper.eq(Order::getStatus, OrderStatus.DELIVERED.getCode());
-        wrapper.orderByDesc(Order::getDeliveredAt);
         wrapper.orderByDesc(Order::getId);
         wrapper.last("LIMIT " + (effectiveLimit + 1));
 
@@ -130,6 +131,7 @@ public class ArchiveServiceImpl implements ArchiveService {
     public long countArchived(Long userId, String userRole) {
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Order::getArchived, 1);
+        wrapper.eq(Order::getStatus, OrderStatus.DELIVERED.getCode());
         applyDataScopeFilter(wrapper, userId, userRole);
         return orderMapper.selectCount(wrapper);
     }
@@ -142,7 +144,17 @@ public class ArchiveServiceImpl implements ArchiveService {
         if (UserRole.AM.getCode().equals(role)) {
             wrapper.eq(Order::getCreatedBy, userId);
         } else if (UserRole.DS.getCode().equals(role)) {
-            wrapper.eq(Order::getDesignerId, userId);
+            // 多物料模型：DS 的可见范围按任务级 designer_id
+            List<Long> orderIds = orderTaskMapper.selectList(
+                    new LambdaQueryWrapper<OrderTask>()
+                            .eq(OrderTask::getDesignerId, userId)
+                            .select(OrderTask::getOrderId)
+            ).stream().map(OrderTask::getOrderId).distinct().toList();
+            if (orderIds.isEmpty()) {
+                wrapper.eq(Order::getId, -1L);
+            } else {
+                wrapper.in(Order::getId, orderIds);
+            }
         }
         // BL：全量
     }
@@ -158,7 +170,8 @@ public class ArchiveServiceImpl implements ArchiveService {
         for (OrderTask t : allTasks) {
             int[] stats = result.computeIfAbsent(t.getOrderId(), k -> new int[]{0, 0});
             stats[0]++;
-            if (OrderStatus.APPROVED.getCode().equals(t.getStatus())) {
+            if (OrderStatus.APPROVED.getCode().equals(t.getStatus())
+                    || OrderStatus.DELIVERED.getCode().equals(t.getStatus())) {
                 stats[1]++;
             }
         }

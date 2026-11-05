@@ -1,6 +1,8 @@
 package com.peak.controller;
 
+import com.peak.common.annotation.RequireRole;
 import com.peak.common.context.UserContext;
+import com.peak.common.enums.UserRole;
 import com.peak.dto.TaskApproveDTO;
 import com.peak.dto.TaskRejectDTO;
 import com.peak.service.OrderTaskService;
@@ -33,7 +35,8 @@ public class OrderTaskAuditController {
 
     /** POST /api/v1/order-tasks/{taskId}/approve */
     @PostMapping("/{taskId}/approve")
-    @Operation(summary = "确认任务定稿", description = "WAIT_APPROVE → APPROVED，仅 BL/AM 可操作")
+    @RequireRole({UserRole.BL})
+    @Operation(summary = "确认任务定稿", description = "WAIT_APPROVE → APPROVED，仅 BL 可操作")
     public ResultVO<OrderTaskVO> approveTask(@PathVariable Long taskId,
                                              @Valid @RequestBody TaskApproveDTO dto) {
         return ResultVO.success(orderTaskService.approveTask(
@@ -42,7 +45,8 @@ public class OrderTaskAuditController {
 
     /** POST /api/v1/order-tasks/{taskId}/reject */
     @PostMapping("/{taskId}/reject")
-    @Operation(summary = "驳回任务定稿", description = "WAIT_APPROVE → DESIGNING，并自动生成修改意见，仅 BL/AM 可操作")
+    @RequireRole({UserRole.BL})
+    @Operation(summary = "驳回任务定稿", description = "WAIT_APPROVE → DESIGNING，并自动生成修改意见，仅 BL 可操作")
     public ResultVO<OrderTaskVO> rejectTask(@PathVariable Long taskId,
                                             @Valid @RequestBody TaskRejectDTO dto) {
         return ResultVO.success(orderTaskService.rejectTask(

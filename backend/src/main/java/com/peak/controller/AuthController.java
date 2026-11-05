@@ -8,6 +8,7 @@ import com.peak.vo.ResultVO;
 import com.peak.vo.UserInfoVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -78,5 +79,23 @@ public class AuthController {
     @Operation(summary = "获取当前登录用户信息", description = "读取 UserContext 中的 userId，返回用户信息与角色，供前端菜单鉴权使用")
     public ResultVO<UserInfoVO> getUserInfo() {
         return ResultVO.success(authService.getUserInfo(UserContext.getUserId()));
+    }
+
+    /**
+     * 退出登录
+     * POST /api/v1/auth/logout
+     *
+     * <p>把当前请求的 JWT 加入黑名单，直到其自然过期；之后携带该 Token 的请求会返回 401。</p>
+     */
+    @PostMapping("/logout")
+    @Operation(summary = "退出登录", description = "将当前 Token 加入黑名单使其立即失效")
+    public ResultVO<Void> logout(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        String token = null;
+        if (header != null && header.startsWith("Bearer ")) {
+            token = header.substring(7).trim();
+        }
+        authService.logout(token);
+        return ResultVO.success(null);
     }
 }

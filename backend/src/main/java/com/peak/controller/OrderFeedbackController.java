@@ -1,5 +1,7 @@
 package com.peak.controller;
 
+import com.peak.common.annotation.RequireRole;
+import com.peak.common.enums.UserRole;
 import com.peak.dto.OrderFeedbackCreateRequest;
 import com.peak.service.OrderFeedbackService;
 import com.peak.vo.OrderFeedbackResponseVO;
@@ -50,6 +52,7 @@ public class OrderFeedbackController {
      * </pre></p>
      */
     @PostMapping
+    @RequireRole({UserRole.AM, UserRole.BL})
     @Operation(summary = "提交修改意见（WAIT_APPROVE → DESIGNING）")
     public ResultVO<OrderFeedbackResponseVO> submitFeedback(
             @Valid @RequestBody OrderFeedbackCreateRequest dto,

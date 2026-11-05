@@ -1,19 +1,26 @@
 package com.peak.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.peak.common.constants.ErrorCode;
+import com.peak.common.enums.FeedbackStatus;
 import com.peak.common.enums.OrderStatus;
 import com.peak.common.enums.UserRole;
 import com.peak.dto.DesignVersionCreateRequest;
 import com.peak.entity.DesignVersion;
 import com.peak.entity.Order;
+import com.peak.entity.OrderFeedback;
+import com.peak.entity.OrderTask;
 import com.peak.entity.User;
 import com.peak.exception.BusinessException;
 import com.peak.mapper.DesignVersionMapper;
+import com.peak.mapper.OrderFeedbackMapper;
 import com.peak.mapper.OrderMapper;
+import com.peak.mapper.OrderTaskMapper;
 import com.peak.mapper.UserMapper;
 import com.peak.service.DesignVersionService;
 import com.peak.service.FileService;
+import com.peak.service.OrderTaskService;
 import com.peak.vo.DesignVersionDiffVO;
 import com.peak.vo.DesignVersionResponseVO;
 import com.peak.vo.DesignVersionVO;
@@ -50,19 +57,29 @@ import java.util.stream.Collectors;
 public class DesignVersionServiceImpl implements DesignVersionService {
 
     private final OrderMapper orderMapper;
+    private final OrderTaskMapper orderTaskMapper;
     private final DesignVersionMapper designVersionMapper;
+    private final OrderFeedbackMapper orderFeedbackMapper;
     private final UserMapper userMapper;
     private final FileService fileService;
+    private final OrderTaskService orderTaskService;
 
     private static final Pattern VERSION_NO_PATTERN = Pattern.compile("V(\\d+)");
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public DesignVersionResponseVO uploadDesignVersion(DesignVersionCreateRequest dto, Long uploaderId) {
-        // ① 查订单
+        // ① 查订单与任务：多物料模型下 taskId 必填且必须属于该订单
         Order order = orderMapper.selectById(dto.getOrderId());
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在");
+        }
+        OrderTask task = orderTaskMapper.selectById(dto.getTaskId());
+        if (task == null || !order.getId().equals(task.getOrderId())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "物料任务不存在或不属于该订单");
+        }
+        if (Integer.valueOf(1).equals(order.getArchived())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT, "订单已归档，不能上传设计稿");
         }
 
         // ② 归属校验：只有被分派的设计制作人员（DS）才能上传
@@ -71,31 +88,44 @@ public class DesignVersionServiceImpl implements DesignVersionService {
             throw new BusinessException(ErrorCode.PERMISSION_DENIED,
                     "仅设计制作人员（DS）可以上传设计稿");
         }
-        if (order.getDesignerId() == null || !order.getDesignerId().equals(uploaderId)) {
+        if (task.getDesignerId() == null || !task.getDesignerId().equals(uploaderId)) {
             throw new BusinessException(ErrorCode.PERMISSION_DENIED,
-                    "只能上传分派给自己的订单设计稿");
+                    "只能上传分派给自己的任务设计稿");
         }
 
         // ③ 状态校验：DESIGNING 才能上传首版 / 新版本
-        if (!OrderStatus.DESIGNING.getCode().equals(order.getStatus())) {
+        if (!OrderStatus.DESIGNING.getCode().equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
-                    "当前订单状态为 [%s]，上传设计稿需要状态为 [设计中]",
-                    OrderStatus.of(order.getStatus()) != null
-                            ? OrderStatus.of(order.getStatus()).getLabel() : order.getStatus());
+                    "当前任务状态为 [%s]，上传设计稿需要状态为 [设计中]",
+                    OrderStatus.of(task.getStatus()) != null
+                            ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
         }
 
         // ④ 乐观锁校验
-        if (!order.getVersion().equals(dto.getVersion())) {
+        if (!task.getVersion().equals(dto.getVersion())) {
             throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
-                    "数据已变更，请刷新后重试（当前版本 %d，请求版本 %d）",
-                    order.getVersion(), dto.getVersion());
+                    "任务已变更，请刷新后重试（当前版本 %d，请求版本 %d）",
+                    task.getVersion(), dto.getVersion());
         }
 
-        // ⑤ 插入 DesignVersion（版本号取数字最大值 +1，唯一键冲突时重试）
-        Long taskId = dto.getTaskId() != null ? dto.getTaskId() : order.getId();
+        // ⑤ 新版本必须基于待处理意见；首版不校验
+        Long existingVersions = designVersionMapper.selectCount(
+                new LambdaQueryWrapper<DesignVersion>().eq(DesignVersion::getTaskId, task.getId()));
+        if (existingVersions != null && existingVersions > 0) {
+            Long pendingFeedbacks = orderFeedbackMapper.selectCount(
+                    new LambdaQueryWrapper<OrderFeedback>()
+                            .eq(OrderFeedback::getTaskId, task.getId())
+                            .eq(OrderFeedback::getStatus, FeedbackStatus.PENDING.getCode()));
+            if (pendingFeedbacks == null || pendingFeedbacks == 0) {
+                throw new BusinessException(ErrorCode.NO_PENDING_FEEDBACK,
+                        "当前任务没有待处理意见，无需上传新版本");
+            }
+        }
+
+        // ⑥ 插入 DesignVersion（版本号按 taskId 取数字最大值 +1）
         DesignVersion version = new DesignVersion();
         version.setOrderId(order.getId());
-        version.setTaskId(taskId);
+        version.setTaskId(task.getId());
         version.setFileId(dto.getFileId());
         version.setFileUrl(fileService.resolveAccessUrl(dto.getFileId()));
         version.setFileName(StringEscapeUtils.escapeHtml4(dto.getFileName()));
@@ -108,7 +138,7 @@ public class DesignVersionServiceImpl implements DesignVersionService {
 
         int attempts = 0;
         while (true) {
-            version.setVersionNo(generateNextVersionNo(order.getId()));
+            version.setVersionNo(generateNextVersionNo(task.getId()));
             try {
                 designVersionMapper.insert(version);
                 break;
@@ -121,17 +151,22 @@ public class DesignVersionServiceImpl implements DesignVersionService {
             }
         }
 
-        // ⑥ 更新订单状态为 WAIT_APPROVE（触发 BL 定稿流程）
-        order.setStatus(OrderStatus.WAIT_APPROVE.getCode());
-        int rows = orderMapper.updateById(order);
-        if (rows == 0) {
-            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "订单已被他人修改");
-        }
+        // ⑦ 旧意见自动标记为已处理（上传新版本即响应修改意见）
+        orderFeedbackMapper.update(null,
+                new LambdaUpdateWrapper<OrderFeedback>()
+                        .eq(OrderFeedback::getTaskId, task.getId())
+                        .eq(OrderFeedback::getStatus, FeedbackStatus.PENDING.getCode())
+                        .set(OrderFeedback::getStatus, FeedbackStatus.PROCESSED.getCode())
+                        .set(OrderFeedback::getProcessedAt, LocalDateTime.now()));
 
-        // ⑦ 组装响应
+        // ⑧ 交由任务状态机推进 DESIGNING → WAIT_APPROVE，并聚合订单状态
+        orderTaskService.onVersionUploaded(task.getId(), version.getId(), uploaderId);
+
+        Order refreshedOrder = orderMapper.selectById(order.getId());
         DesignVersionResponseVO resp = new DesignVersionResponseVO();
         resp.setId(version.getId());
         resp.setTaskId(version.getTaskId());
+        resp.setFileId(version.getFileId());
         resp.setVersionNo(version.getVersionNo());
         resp.setFileUrl(version.getFileUrl());
         resp.setFileName(version.getFileName());
@@ -139,8 +174,8 @@ public class DesignVersionServiceImpl implements DesignVersionService {
         resp.setVersionNote(version.getVersionNote());
         resp.setIsFinal(false);
         resp.setUploadedAt(version.getUploadedAt());
-        resp.setOrderStatus(order.getStatus());
-        resp.setOrderVersion(order.getVersion());
+        resp.setOrderStatus(refreshedOrder.getStatus());
+        resp.setOrderVersion(refreshedOrder.getVersion());
         return resp;
     }
 
@@ -158,7 +193,7 @@ public class DesignVersionServiceImpl implements DesignVersionService {
             }
             resolvedOrderId = sample.getOrderId();
         }
-        Order order = requireOrderForRead(resolvedOrderId, userId, userRole);
+        Order order = requireOrderForRead(resolvedOrderId, taskId, userId, userRole);
 
         LambdaQueryWrapper<DesignVersion> wrapper = new LambdaQueryWrapper<DesignVersion>()
                 .eq(DesignVersion::getOrderId, order.getId());
@@ -203,7 +238,7 @@ public class DesignVersionServiceImpl implements DesignVersionService {
         }
 
         Long resolvedOrderId = orderId != null ? orderId : versions.get(0).getOrderId();
-        Order order = requireOrderForRead(resolvedOrderId, userId, userRole);
+        Order order = requireOrderForRead(resolvedOrderId, taskId, userId, userRole);
 
         DesignVersion version1 = findByVersionNo(versions, "V" + v1);
         DesignVersion version2 = findByVersionNo(versions, "V" + v2);
@@ -218,19 +253,19 @@ public class DesignVersionServiceImpl implements DesignVersionService {
 
         DesignVersionDiffVO result = new DesignVersionDiffVO();
         result.setOrderId(order.getId());
-        result.setTaskId(taskId != null ? taskId : order.getId());
+        result.setTaskId(taskId);
         result.setV1(toDiffItem(version1));
         result.setV2(toDiffItem(version2));
         return result;
     }
 
     /**
-     * 版本号自增：查当前订单全部版本号 → 取数字最大值 +1
+     * 版本号自增：查当前任务全部版本号 → 取数字最大值 +1
      * 无历史版本 → 返回 V1
      */
-    private String generateNextVersionNo(Long orderId) {
+    private String generateNextVersionNo(Long taskId) {
         List<DesignVersion> versions = designVersionMapper.selectList(
-                new LambdaQueryWrapper<DesignVersion>().eq(DesignVersion::getOrderId, orderId));
+                new LambdaQueryWrapper<DesignVersion>().eq(DesignVersion::getTaskId, taskId));
         int max = versions.stream().mapToInt(v -> parseVersionNo(v.getVersionNo())).max().orElse(0);
         return "V" + (max + 1);
     }
@@ -243,7 +278,7 @@ public class DesignVersionServiceImpl implements DesignVersionService {
         return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
     }
 
-    private Order requireOrderForRead(Long orderId, Long userId, String userRole) {
+    private Order requireOrderForRead(Long orderId, Long taskId, Long userId, String userRole) {
         if (orderId == null) {
             throw new BusinessException(ErrorCode.PARAM_VALIDATION_ERROR,
                     "orderId 或 taskId 至少传一个");
@@ -252,11 +287,17 @@ public class DesignVersionServiceImpl implements DesignVersionService {
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在");
         }
-        checkViewScope(order, userId, userRole);
+        if (taskId != null) {
+            OrderTask task = orderTaskMapper.selectById(taskId);
+            if (task == null || !order.getId().equals(task.getOrderId())) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "物料任务不存在或不属于该订单");
+            }
+        }
+        checkViewScope(order, taskId, userId, userRole);
         return order;
     }
 
-    private void checkViewScope(Order order, Long userId, String userRole) {
+    private void checkViewScope(Order order, Long taskId, Long userId, String userRole) {
         if (UserRole.BL.getCode().equals(userRole)) {
             return;
         }
@@ -264,9 +305,22 @@ public class DesignVersionServiceImpl implements DesignVersionService {
                 && userId.equals(order.getCreatedBy())) {
             return;
         }
-        if (UserRole.DS.getCode().equals(userRole) && userId != null
-                && userId.equals(order.getDesignerId())) {
-            return;
+        if (UserRole.DS.getCode().equals(userRole) && userId != null) {
+            // 多物料模型：DS 的可见范围是任务级 designerId
+            if (taskId != null) {
+                OrderTask task = orderTaskMapper.selectById(taskId);
+                if (task != null && userId.equals(task.getDesignerId())) {
+                    return;
+                }
+            } else {
+                Long assigned = orderTaskMapper.selectCount(
+                        new LambdaQueryWrapper<OrderTask>()
+                                .eq(OrderTask::getOrderId, order.getId())
+                                .eq(OrderTask::getDesignerId, userId));
+                if (assigned != null && assigned > 0) {
+                    return;
+                }
+            }
         }
         throw new BusinessException(ErrorCode.DATA_SCOPE_DENIED, "无权查看该订单的设计稿版本");
     }
@@ -283,6 +337,7 @@ public class DesignVersionServiceImpl implements DesignVersionService {
         DesignVersionVO vo = new DesignVersionVO();
         vo.setId(version.getId());
         vo.setTaskId(version.getTaskId());
+        vo.setFileId(version.getFileId());
         vo.setVersionNo(version.getVersionNo());
         vo.setFileUrl(version.getFileUrl());
         vo.setFileName(version.getFileName());

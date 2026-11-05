@@ -11,7 +11,8 @@ public class OrderFeedbackCreateRequest {
     /** 关联订单 ID */
     @NotNull(message = "orderId 不能为空")
     private Long orderId;
-    /** 任务 ID（多物料占位；为空时默认取 orderId） */
+    /** 任务 ID（多物料模型下必填，必须属于 orderId） */
+    @NotNull(message = "taskId 不能为空")
     private Long taskId;
     /** 修改意见内容（1~500 字符，XSS 清洗） */
     @NotBlank(message = "修改意见不能为空")

@@ -14,7 +14,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  *
  * <p>放行白名单：
  *  - /v1/auth/login       — 登录接口本身不需要 Token
- *  - /v1/files/presign    — 文件直传签名（presign 不鉴权）
  *  - /doc.html 等         — Knife4j / Swagger 文档
  *  - OPTIONS 方法         — 由 JwtInterceptor 放行（CORS 预检）</p>
  */
@@ -31,7 +30,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .addPathPatterns("/v1/**")                              // 拦截所有 API
                 .excludePathPatterns(
                         "/v1/auth/login",                              // 登录放行
-                        "/v1/files/presign",                           // 文件签名放行
                         "/doc.html", "/webjars/**", "/v3/api-docs/**",
                         "/swagger-ui/**", "/swagger-resources/**"      // Knife4j / Swagger
                 );
