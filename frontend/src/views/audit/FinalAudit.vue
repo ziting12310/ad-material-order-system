@@ -34,7 +34,7 @@
       <el-col :xs="24" :sm="8">
         <div class="stat-card stat-rejected" @click="switchToRejected">
           <div class="stat-icon-wrap">
-            <el-icon :size="24"><CloseCircleFilled /></el-icon>
+            <el-icon :size="24"><CircleCloseFilled /></el-icon>
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stats.rejected }}</div>
@@ -534,7 +534,7 @@ import {
   RefreshLeft,
   Clock,
   CircleCheckFilled,
-  CloseCircleFilled
+  CircleCloseFilled
 } from '@element-plus/icons-vue'
 import {
   listPendingTasks,
