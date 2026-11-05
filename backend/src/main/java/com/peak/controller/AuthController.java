@@ -2,6 +2,7 @@ package com.peak.controller;
 
 import com.peak.common.context.UserContext;
 import com.peak.dto.LoginRequest;
+import com.peak.dto.RegisterRequest;
 import com.peak.service.AuthService;
 import com.peak.vo.LoginResponseVO;
 import com.peak.vo.ResultVO;
@@ -58,6 +59,19 @@ public class AuthController {
         // Controller 仅做三件事：接收（@Valid @RequestBody）→ 调用 Service → 返回 ResultVO
         // 不捕获异常，GlobalExceptionHandler 统一处理 BusinessException
         return ResultVO.success(authService.login(dto));
+    }
+
+    /**
+     * 自助注册
+     * POST /api/v1/auth/register
+     *
+     * <p>匿名可访问（WebMvcConfig 放行），注册用户固定为 DS 角色，成功后返回脱敏用户信息，不返回密码。
+     * <pre>请求：{"username":"test_user","password":"123456","name":"测试用户","phone":"13800138000"}</pre></p>
+     */
+    @PostMapping("/register")
+    @Operation(summary = "用户注册", description = "自助注册账号（固定 DS 角色），密码 bcrypt 加密存储")
+    public ResultVO<UserInfoVO> register(@Valid @RequestBody RegisterRequest dto) {
+        return ResultVO.success("注册成功", authService.register(dto));
     }
 
     /**

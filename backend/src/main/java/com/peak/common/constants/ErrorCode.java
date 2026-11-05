@@ -62,6 +62,8 @@ public final class ErrorCode {
     public static final String ORDER_NO_DUPLICATE = "ORDER_NO_DUPLICATE";
     /** 物料任务已分派，不能重复分派 */
     public static final String ORDER_ALREADY_ASSIGNED = "ORDER_ALREADY_ASSIGNED";
+    /** 注册账号重复 */
+    public static final String USERNAME_DUPLICATE = "USERNAME_DUPLICATE";
 
     // ---------- 413 Payload Too Large ----------
     /** 上传文件超过大小限制 */

@@ -1,6 +1,7 @@
 package com.peak.service;
 
 import com.peak.dto.LoginRequest;
+import com.peak.dto.RegisterRequest;
 import com.peak.vo.LoginResponseVO;
 import com.peak.vo.UserInfoVO;
 
@@ -20,6 +21,16 @@ public interface AuthService {
      * @throws com.peak.exception.BusinessException LOGIN_FAILED（密码错）/ ACCOUNT_LOCKED（锁定）/ USER_NOT_FOUND
      */
     LoginResponseVO login(LoginRequest dto);
+
+    /**
+     * 自助注册
+     * <p>校验账号唯一性，密码 bcrypt 加密后落库，新增用户固定为 DS 角色，返回脱敏用户信息（不含密码）</p>
+     *
+     * @param dto 注册请求（username / password / name / phone）
+     * @return 注册成功的用户基本信息
+     * @throws com.peak.exception.BusinessException USERNAME_DUPLICATE（账号已存在）
+     */
+    UserInfoVO register(RegisterRequest dto);
 
     /**
      * 根据 userId 获取用户基础信息（缓存优先）

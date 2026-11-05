@@ -81,6 +81,7 @@ public class GlobalExceptionHandler {
             Map.entry(ErrorCode.ORDER_VERSION_CONFLICT, HttpStatus.CONFLICT),
             Map.entry(ErrorCode.ORDER_NO_DUPLICATE, HttpStatus.CONFLICT),
             Map.entry(ErrorCode.ORDER_ALREADY_ASSIGNED, HttpStatus.CONFLICT),
+            Map.entry(ErrorCode.USERNAME_DUPLICATE, HttpStatus.CONFLICT),
             // 413
             Map.entry(ErrorCode.FILE_TOO_LARGE, HttpStatus.PAYLOAD_TOO_LARGE),
             // 422

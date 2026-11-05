@@ -2,8 +2,10 @@ package com.peak.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.peak.common.constants.ErrorCode;
+import com.peak.common.enums.UserRole;
 import com.peak.config.security.TokenBlacklist;
 import com.peak.dto.LoginRequest;
+import com.peak.dto.RegisterRequest;
 import com.peak.entity.User;
 import com.peak.exception.BusinessException;
 import com.peak.mapper.UserMapper;
@@ -14,6 +16,7 @@ import com.peak.vo.LoginResponseVO;
 import com.peak.vo.UserInfoVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -99,6 +102,44 @@ public class AuthServiceImpl implements AuthService {
         resp.setExpiresIn(jwtUtil.getExpireSeconds());
         resp.setUser(buildUserInfoVO(user));
         return resp;
+    }
+
+    @Override
+    public UserInfoVO register(RegisterRequest dto) {
+        String username = dto.getUsername().trim();
+
+        // ① 账号唯一性校验（@TableLogic 自动过滤 is_deleted=1 的记录）
+        Long count = userMapper.selectCount(
+                new LambdaQueryWrapper<User>().eq(User::getUsername, username)
+        );
+        if (count != null && count > 0) {
+            throw new BusinessException(ErrorCode.USERNAME_DUPLICATE, "账号已存在");
+        }
+
+        // ② 组装用户：密码 bcrypt 加密，locked/deleted/version 初始为 0
+        User user = new User();
+        user.setUsername(username);
+        user.setPasswordHash(passwordUtil.encrypt(dto.getPassword()));
+        user.setName(dto.getName());
+        // 自助注册固定为 DS，AM/BL 只能由内部维护，避免匿名注册获取业务权限
+        user.setRole(UserRole.DS.getCode());
+        user.setPhone(dto.getPhone());
+        user.setLocked(0);
+        user.setDeleted(0);
+        // version 列由 DB 默认值 0 填充（User 实体无 @Version 字段）
+        user.setCreatedAt(java.time.LocalDateTime.now());
+        user.setUpdatedAt(java.time.LocalDateTime.now());
+
+        try {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException e) {
+            // 并发注册 / 软删除记录占用 username 时，uk_username 兜底
+            throw new BusinessException(ErrorCode.USERNAME_DUPLICATE, "账号已存在");
+        }
+
+        log.info("用户注册成功：id={}, username={}, role={}", user.getId(), user.getUsername(), user.getRole());
+        // ③ 返回脱敏信息（不含密码哈希）
+        return buildUserInfoVO(user);
     }
 
     @Override

@@ -33,6 +33,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .addPathPatterns("/v1/**")                              // 拦截所有 API
                 .excludePathPatterns(
                         "/v1/auth/login",                              // 登录放行
+                        "/v1/auth/register",                           // 自助注册放行（匿名可访问）
                         "/doc.html", "/webjars/**", "/v3/api-docs/**",
                         "/swagger-ui/**", "/swagger-resources/**"      // Knife4j / Swagger
                 );
