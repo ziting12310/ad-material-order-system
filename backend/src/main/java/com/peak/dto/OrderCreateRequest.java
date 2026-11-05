@@ -1,6 +1,7 @@
 package com.peak.dto;
 
 import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -33,6 +34,8 @@ public class OrderCreateRequest {
 
     /** @deprecated 多物料模型下请使用 tasks 列表 */
     @Deprecated
+    @Positive(message = "数量必须为正整数")
+    @Max(value = 99999, message = "数量需在 1-99999 之间")
     private Integer quantity;
 
     /** @deprecated 多物料模型下请使用 tasks 列表 */

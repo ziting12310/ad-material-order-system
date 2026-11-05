@@ -432,10 +432,8 @@ function handleScroll() {
 }
 
 function setupScrollListener() {
-  // 查找内容区域滚动容器
-  scrollContainer = document.querySelector('.main-content') ||
-                    document.querySelector('.app-main') ||
-                    document.querySelector('.layout-content')
+  // 实际滚动容器是布局主内容区 el-main（class="layout-main"）
+  scrollContainer = document.querySelector('.layout-main')
   if (scrollContainer) {
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true })
   }

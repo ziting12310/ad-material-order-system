@@ -18,6 +18,7 @@ import com.peak.dto.OrderDeliverRequest;
 import com.peak.dto.OrderRejectRequest;
 import com.peak.dto.OrderUpdateRequest;
 import com.peak.dto.TaskCreateItem;
+import com.peak.dto.TaskUpdateDTO;
 import com.peak.dto.VersionOnlyRequest;
 import com.peak.entity.DesignVersion;
 import com.peak.entity.Order;
@@ -352,6 +353,22 @@ public class OrderServiceImpl implements OrderService {
         order.setContactPhone(dto.getContactPhone());
         order.setDeliveryDate(dto.getDeliveryDate());
         order.setRemark(dto.getRemark() != null ? StringEscapeUtils.escapeHtml4(dto.getRemark()) : null);
+        // 订单冗余字段必须同步落库，否则列表/工作台仍显示旧值
+        order.setMaterialType(dto.getMaterialType());
+        order.setQuantity(dto.getQuantity());
+        order.setSpecification(StringEscapeUtils.escapeHtml4(dto.getSpecification()));
+
+        // 多物料：按任务 id 逐条更新数量/规格等（携带任务级 version）
+        if (dto.getTasks() != null && !dto.getTasks().isEmpty()) {
+            syncOrderTasks(orderId, dto.getTasks(), operatorId);
+
+            // 数量以任务明细为准：前端只改任务里的 quantity，
+            // 顶层 dto.quantity 可能为 null 或与明细不一致，这里用首个任务覆盖
+            OrderUpdateRequest.TaskItem firstTask = dto.getTasks().get(0);
+            if (firstTask.getQuantity() != null) {
+                order.setQuantity(firstTask.getQuantity());
+            }
+        }
 
         int rows = orderMapper.updateById(order);
         if (rows == 0) {
@@ -363,6 +380,34 @@ public class OrderServiceImpl implements OrderService {
                 operatorId, null, null);
 
         return buildCreateResponse(order);
+    }
+
+    /**
+     * 编辑订单时同步物料任务明细
+     *
+     * <p>只处理已存在的任务（新增/删除走任务接口）；每条任务都必须属于当前订单，
+     * 且携带任务自身 version，由 OrderTaskService 完成乐观锁与日志记录。</p>
+     */
+    private void syncOrderTasks(Long orderId, List<OrderUpdateRequest.TaskItem> items, Long operatorId) {
+        for (OrderUpdateRequest.TaskItem item : items) {
+            if (item.getId() == null) {
+                throw new BusinessException(ErrorCode.PARAM_VALIDATION_ERROR,
+                        "编辑订单不支持新增物料任务，请使用任务新增接口");
+            }
+            OrderTask existing = orderTaskMapper.selectById(item.getId());
+            if (existing == null || !orderId.equals(existing.getOrderId())) {
+                throw new BusinessException(ErrorCode.ORDER_NOT_FOUND, "物料任务不属于该订单");
+            }
+            TaskUpdateDTO taskDto = new TaskUpdateDTO();
+            taskDto.setVersion(item.getVersion());
+            taskDto.setMaterialType(item.getMaterialType());
+            taskDto.setQuantity(item.getQuantity());
+            taskDto.setSpecification(item.getSpecification());
+            taskDto.setUsageDesc(item.getUsageDesc());
+            taskDto.setDeadline(item.getDeadline());
+            taskDto.setRemark(item.getRemark());
+            orderTaskService.updateTask(item.getId(), taskDto, operatorId);
+        }
     }
 
     // ========================================================================

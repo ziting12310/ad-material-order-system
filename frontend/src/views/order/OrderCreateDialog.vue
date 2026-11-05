@@ -116,8 +116,11 @@
                       :min="1"
                       :max="99999"
                       :step="1"
+                      :precision="0"
                       controls-position="right"
                       style="width: 100%"
+                      @input="val => handleQuantityInput(task, val)"
+                      @change="val => handleQuantityInput(task, val)"
                     />
                   </el-form-item>
                 </el-col>
@@ -291,6 +294,30 @@ function removeTask(index) {
   form.tasks.splice(index, 1)
 }
 
+/**
+ * 数量输入框自动取整：小数四舍五入，并收敛到 1~99999 的正整数
+ */
+function handleQuantityInput(task, val) {
+  const n = Number(val)
+  if (!Number.isFinite(n)) return
+  const rounded = Math.min(99999, Math.max(1, Math.round(n)))
+  if (task.quantity !== rounded) {
+    task.quantity = rounded
+  }
+}
+
+/**
+ * 提交前兜底：确保所有任务数量都是正整数（防止绕过输入框的异常值）
+ */
+function normalizeAllQuantities() {
+  form.tasks.forEach(task => {
+    const n = Number(task.quantity)
+    task.quantity = Number.isFinite(n)
+      ? Math.min(99999, Math.max(1, Math.round(n)))
+      : 1
+  })
+}
+
 // ---------- 加载编辑数据 ----------
 async function loadEditData(id) {
   loading.value = true
@@ -367,6 +394,16 @@ async function handleSubmit() {
     return
   }
 
+  // 数量统一取整，避免小数被后端 Integer 反序列化拒绝
+  normalizeAllQuantities()
+
+  // 空字符串日期/文本转 null，避免 LocalDate 反序列化失败
+  form.tasks.forEach(t => {
+    if (t.deadline === '') t.deadline = null
+    if (t.usageDesc === '') t.usageDesc = null
+    if (t.remark === '') t.remark = null
+  })
+
   // 同步订单级遗留字段（后端 DTO 还校验，取第一个任务的值）
   if (form.tasks && form.tasks.length > 0) {
     const firstTask = form.tasks[0]
@@ -375,13 +412,25 @@ async function handleSubmit() {
     form.specification = firstTask.specification || ''
   }
 
+  // 编辑必须携带乐观锁 version，缺失时直接提示，避免无意义请求
+  if (isEdit.value && form.version == null) {
+    ElMessage.error('订单版本号缺失，请刷新页面后重试')
+    return
+  }
+
+  const payload = { ...form }
+  if (isEdit.value) {
+    // 只提交已存在的任务（带 id 才能按任务更新）；新增任务走任务接口
+    payload.tasks = form.tasks.filter(t => t.id != null && t.id !== '')
+  }
+
   submitting.value = true
   try {
     if (isEdit.value) {
-      await updateOrder(props.editData.id, { ...form })
+      await updateOrder(props.editData.id, payload)
       ElMessage.success('订单更新成功')
     } else {
-      await createOrder({ ...form })
+      await createOrder(payload)
       ElMessage.success('订单创建成功')
     }
     emit('success')
