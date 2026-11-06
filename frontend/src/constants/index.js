@@ -27,7 +27,7 @@ export const ORDER_STATUS_MAP = {
 // 任务状态（订单状态子集）
 export const TASK_STATUS_MAP = {
     CREATED:      { label: '待分派', type: 'info' },
-    ASSIGNED:     { label: '已分派', type: 'primary' },
+    ASSIGNED:     { label: '待确定', type: 'primary' },
     DESIGNING:    { label: '设计中', type: 'warning' },
     WAIT_APPROVE: { label: '待审核', type: 'warning' },
     APPROVED:     { label: '已定稿', type: 'success' },

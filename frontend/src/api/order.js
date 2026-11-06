@@ -101,6 +101,23 @@ export function cancelOrder(id, data) {
 // ==================== 物料任务 ====================
 
 /**
+ * 工作台任务状态统计
+ * GET /api/v1/order-tasks/stats
+ * 与工作台任务列表同一数据口径：仅当前用户可见订单、本人任务、有效状态
+ */
+export function getTaskStats() {
+    return request.get('/order-tasks/stats', { silent: true })
+}
+
+/**
+ * 重新开始设计（已驳回 → 设计中，仅任务所属设计师）
+ * PUT /api/v1/orders/{orderId}/tasks/{taskId}/restart-design
+ */
+export function restartDesign(orderId, taskId, version) {
+    return request.put(`/orders/${orderId}/tasks/${taskId}/restart-design`, { version }, { silent: true })
+}
+
+/**
  * 查询订单下所有物料任务
  * GET /api/v1/orders/{orderId}/tasks
  */

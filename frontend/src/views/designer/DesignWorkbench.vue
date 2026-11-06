@@ -72,9 +72,10 @@
                 >
                   <!-- BL 多一个"待分派"状态 -->
                   <el-option v-if="isBL" label="待分派" value="CREATED" />
-                  <el-option label="待接单" value="ASSIGNED" />
+                  <el-option label="待确定" value="ASSIGNED" />
                   <el-option label="设计中" value="DESIGNING" />
                   <el-option label="待审核" value="WAIT_APPROVE" />
+                  <el-option label="已驳回" value="REJECTED" />
                   <el-option label="已完成" value="APPROVED" />
                 </el-select>
               </el-form-item>
@@ -176,16 +177,25 @@
                     查看详情
                   </el-button>
                 </template>
-                <!-- DS：待接单显示接单，设计中显示上传版本，所有状态均可查看详情 -->
+                <!-- DS：待确定显示待确定按钮，设计中显示上传版本，所有状态均可查看详情 -->
                 <template v-else>
-                  <!-- 待接单：显示接单按钮 -->
+                  <!-- 待确定：显示待确定按钮 -->
                   <el-button
                     v-if="row.status === 'ASSIGNED'"
                     type="primary"
                     size="small"
                     @click="handleAccept(row)"
                   >
-                    接单
+                    待确定
+                  </el-button>
+                  <!-- 已驳回：显示重新开始设计按钮 -->
+                  <el-button
+                    v-if="row.status === 'REJECTED'"
+                    type="warning"
+                    size="small"
+                    @click="handleRestart(row)"
+                  >
+                    重新开始设计
                   </el-button>
                   <!-- 设计中：显示上传版本按钮 -->
                   <el-button
@@ -386,7 +396,7 @@ import {
   Clock,
   CircleCheckFilled
 } from '@element-plus/icons-vue'
-import { listOrders, acceptTask, uploadDesignVersion, assignTask, assignOrder, getOrderDetail, listDesigners } from '@/api'
+import { listOrders, acceptTask, uploadDesignVersion, assignTask, assignOrder, getOrderDetail, listDesigners, getTaskStats, restartDesign } from '@/api'
 import { listMyAuditLogs } from '@/api/audit'
 import { useClientPagination } from '@/composables/useClientPagination'
 import ClientPagination from '@/components/common/ClientPagination.vue'
@@ -428,7 +438,7 @@ const hasTaskFilters = computed(() => {
 
 // ---------- 统计 ----------
 const stats = reactive({
-  // DS: 待接单  BL: 待分派
+  // DS: 待确定  BL: 待分派
   assigned: 0,
   pending: 0,
   designing: 0,
@@ -436,38 +446,26 @@ const stats = reactive({
   approved: 0
 })
 
-// 第一个统计卡片的状态值和标签（DS=待接单/ASSIGNED，BL=待分派/CREATED）
+// 第一个统计卡片的状态值和标签（DS=待确定/ASSIGNED，BL=待分派/CREATED）
 const firstStatStatus = computed(() => isBL.value ? 'CREATED' : 'ASSIGNED')
-const firstStatLabel = computed(() => isBL.value ? '待分派' : '待接单')
+const firstStatLabel = computed(() => isBL.value ? '待分派' : '待确定')
 const firstStatValue = computed(() => isBL.value ? stats.pending : stats.assigned)
 
 async function fetchStats() {
   try {
-    // 通过一次列表查询统计各状态数量（简化实现）
-    const designerId = userStore.userInfo?.id
-
-    // BL：统计由 fetchTaskList 基于「任务实时状态」统一刷新（见 applyBlTaskStats），
-    // 避免用订单级 status 统计导致与任务列表数字不一致
-    if (isBL.value) return
-
-    // DS：统计我的任务各状态数量
-    if (!designerId) return
-    const [assignedRes, designingRes, waitRes, approvedRes] = await Promise.all([
-      listOrders({ designerId, status: 'ASSIGNED', limit: 1 }).catch(() => ({ total: 0 })),
-      listOrders({ designerId, status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
-      listOrders({ designerId, status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
-      listOrders({ designerId, status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
-    ])
-    stats.assigned = assignedRes.total || 0
-    stats.designing = designingRes.total || 0
-    stats.waitApprove = waitRes.total || 0
-    stats.approved = approvedRes.total || 0
+    // 顶部卡片统一取后端统计接口，口径与下方任务列表完全一致
+    const res = await getTaskStats()
+    stats.pending = res.created || 0
+    stats.assigned = res.assigned || 0
+    stats.designing = res.designing || 0
+    stats.waitApprove = res.waitApprove || 0
+    stats.approved = res.approved || 0
   } catch (e) {
-    // 接口异常时使用 mock 数据（仅 DS）
-    stats.assigned = 3
-    stats.designing = 5
-    stats.waitApprove = 2
-    stats.approved = 28
+    stats.pending = 0
+    stats.assigned = 0
+    stats.designing = 0
+    stats.waitApprove = 0
+    stats.approved = 0
   }
 }
 
@@ -491,12 +489,17 @@ const {
   handlePageChange
 } = useClientPagination(taskList)
 
-// 从订单列表扁平化为任务（不做筛选）
+// 从订单列表扁平化为任务（与顶部统计接口保持同一口径）
 function flattenOrders(orders) {
   const tasks = []
+  const currentUserId = userStore.userInfo?.id
   orders.forEach(order => {
+    // 作废订单不参与工作台展示与统计
+    if (order.status === 'CANCELLED') return
     if (order.tasks && order.tasks.length > 0) {
       order.tasks.forEach(task => {
+        // DS：只展示任务归属为当前登录设计师的任务
+        if (isDS.value && task.designerId !== currentUserId) return
         tasks.push({
           ...task,
           orderId: order.id,
@@ -504,7 +507,7 @@ function flattenOrders(orders) {
           customerName: order.customerName
         })
       })
-    } else {
+    } else if (!isDS.value) {
       // 订单级兜底（没有任务列表时，把订单本身作为一条任务）
       tasks.push({
         id: order.id,
@@ -532,14 +535,6 @@ function applyTaskFilters(tasks) {
   })
 }
 
-// BL 统计：直接基于全量任务的实时状态，保证统计卡片与列表、数据库一致
-function applyBlTaskStats(tasks) {
-  stats.pending = tasks.filter(t => t.status === 'CREATED').length
-  stats.designing = tasks.filter(t => t.status === 'DESIGNING').length
-  stats.waitApprove = tasks.filter(t => t.status === 'WAIT_APPROVE').length
-  stats.approved = tasks.filter(t => t.status === 'APPROVED').length
-}
-
 /**
  * 拉取全量任务（沿用原有 GET /orders 游标接口，不改后端）
  * 内部循环翻完所有游标页后一次性汇总，再交给前端本地分页（每页 10 条）
@@ -549,7 +544,6 @@ async function fetchTaskList() {
 
   try {
     const allTasks = []      // 筛选后的任务（列表展示）
-    const allRawTasks = []   // 未筛选的全部任务（BL 统计用）
     let cursor = null
     let hasMore = true
 
@@ -573,7 +567,6 @@ async function fetchTaskList() {
 
       const res = await listOrders(params)
       const batch = flattenOrders(res.list || [])
-      allRawTasks.push(...batch)
       allTasks.push(...applyTaskFilters(batch))
 
       cursor = res.nextCursor || null
@@ -581,11 +574,9 @@ async function fetchTaskList() {
     }
 
     taskList.value = allTasks
-    if (isBL.value) applyBlTaskStats(allRawTasks)
     resetTaskPage()   // 数据刷新后回到第一页
   } catch (e) {
     taskList.value = []
-    if (isBL.value) applyBlTaskStats([])
     resetTaskPage()
   } finally {
     loading.value = false
@@ -606,19 +597,19 @@ function handleReset() {
 // 点击统计卡片快速筛选
 function quickFilter(status) {
   activeTab.value = 'tasks'
-  // BL 的第一个卡片是待分派(CREATED)，DS 是待接单(ASSIGNED)
+  // BL 的第一个卡片是待分派(CREATED)，DS 是待确定(ASSIGNED)
   filters.status = status
   fetchTaskList()
 }
 
-// ---------- 操作：接单 ----------
+// ---------- 操作：待确定 ----------
 async function handleAccept(row) {
   try {
     await ElMessageBox.confirm(
-      `确定接受任务 ${row.taskNo || row.id} 吗？`,
-      '接单确认',
+      `确定将任务 ${row.taskNo || row.id} 标记为待确定吗？`,
+      '待确定确认',
       {
-        confirmButtonText: '确认接单',
+        confirmButtonText: '确认待确定',
         cancelButtonText: '取消',
         type: 'primary'
       }
@@ -629,24 +620,54 @@ async function handleAccept(row) {
 
   const orderId = row.orderId || row.id
   try {
-    // 行数据是订单级兜底（无 task.version），先拉订单详情，找分派给我的待接单任务
+    // 行数据是订单级兜底（无 task.version），先拉订单详情，找分派给我的待确定任务
     const detail = await getOrderDetail(orderId)
     const myTasks = (detail.tasks || []).filter(
       t => t.status === 'ASSIGNED' && t.designerId === userStore.userInfo?.id
     )
     if (myTasks.length === 0) {
-      ElMessage.warning('该订单下没有分派给我的待接单任务')
+      ElMessage.warning('该订单下没有分派给我的待确定任务')
       return
     }
     for (const t of myTasks) {
       if (t.version == null) {
-        ElMessage.error(`任务 ${t.taskNo || t.id} 缺少乐观锁 version，无法接单，请刷新重试`)
+        ElMessage.error(`任务 ${t.taskNo || t.id} 缺少乐观锁 version，无法标记为待确定，请刷新重试`)
         return
       }
       await acceptTask(orderId, t.id, t.version)
     }
-    ElMessage.success('接单成功')
+    ElMessage.success('已标记为待确定')
     // 刷新列表和统计
+    fetchTaskList()
+    fetchStats()
+  } catch (e) {
+    // 错误已由拦截器处理
+  }
+}
+
+// ---------- 操作：重新开始设计 ----------
+async function handleRestart(row) {
+  const orderId = row.orderId || row.id
+  if (!row.id || row.version == null) {
+    ElMessage.error('任务数据缺少版本号，请刷新后重试')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定将任务 ${row.taskNo || row.id} 重新开始设计吗？`,
+      '重新开始设计',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    await restartDesign(orderId, row.id, row.version)
+    ElMessage.success('已重新开始设计')
     fetchTaskList()
     fetchStats()
   } catch (e) {
@@ -939,7 +960,9 @@ function logActionLabel(action) {
     REJECT: '驳回设计',
     SUBMIT: '提交审核',
     ASSIGN: '任务分派',
-    ACCEPT: '设计师接单',
+    ACCEPT: '设计师待确定',
+    RESTART: '重新开始设计',
+    TASK_RESTART: '重新开始设计',
     CANCEL: '订单作废'
   }
   if (!action) return '—'

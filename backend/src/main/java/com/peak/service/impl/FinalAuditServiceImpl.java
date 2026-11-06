@@ -359,8 +359,8 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                 vo.setOrderNo(order.getOrderNo());
                 vo.setCustomerName(order.getCustomerName());
             }
-            // 驳回任务的当前状态：DESIGNING（已退回设计中），但流水类型 REJECT 更明确
-            vo.setStatus(OrderStatus.DESIGNING.getCode());
+            // 驳回任务的当前状态：REJECTED（已退回，等待设计师重新开始设计），但流水类型 REJECT 更明确
+            vo.setStatus(OrderStatus.REJECTED.getCode());
             vo.setStatusName("已驳回");
             return vo;
         }).toList();

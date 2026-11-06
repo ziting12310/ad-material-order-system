@@ -113,6 +113,18 @@ public class OrderTaskController {
         return ResultVO.success(orderTaskService.acceptTask(taskId, body.getVersion(), designerId));
     }
 
+    @PutMapping("/{taskId}/restart-design")
+    @RequireRole({UserRole.DS})
+    @Operation(summary = "重新开始设计（REJECTED → DESIGNING）",
+            description = "仅任务所属设计师可操作，仅已驳回状态可重新开始设计")
+    public ResultVO<OrderStatusUpdateResponseVO> restartDesign(@PathVariable Long orderId,
+                                                                @PathVariable Long taskId,
+                                                                @RequestBody AcceptBody body,
+                                                                HttpServletRequest request) {
+        Long designerId = UserContext.getUserId();
+        return ResultVO.success(orderTaskService.restartDesign(taskId, body.getVersion(), designerId));
+    }
+
     @PutMapping("/{taskId}/approve")
     @Operation(summary = "任务定稿（WAIT_APPROVE → APPROVED）",
             description = "对单个物料任务确认终稿并写入定稿备注；订单级汇总由订单接口完成")
@@ -124,8 +136,8 @@ public class OrderTaskController {
     }
 
     @PutMapping("/{taskId}/reject")
-    @Operation(summary = "任务驳回（WAIT_APPROVE → DESIGNING）",
-            description = "驳回单个物料任务的设计稿，驳回说明会写入修改意见（Feedback）")
+    @Operation(summary = "任务驳回（WAIT_APPROVE → REJECTED）",
+            description = "驳回单个物料任务的设计稿，任务进入已驳回状态，驳回说明会写入修改意见（Feedback）")
     public ResultVO<OrderTaskVO> rejectTask(@PathVariable Long orderId,
                                             @PathVariable Long taskId,
                                             @Valid @RequestBody TaskRejectDTO dto) {

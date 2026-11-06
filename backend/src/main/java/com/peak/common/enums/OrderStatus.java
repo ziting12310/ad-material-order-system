@@ -17,6 +17,7 @@ public enum OrderStatus {
     ASSIGNED("ASSIGNED", "已分派"),
     DESIGNING("DESIGNING", "设计中"),
     WAIT_APPROVE("WAIT_APPROVE", "待审核"),
+    REJECTED("REJECTED", "已驳回"),
     APPROVED("APPROVED", "已定稿"),
     DELIVERED("DELIVERED", "已交付"),
     CANCELLED("CANCELLED", "已作废");

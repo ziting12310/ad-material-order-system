@@ -2,7 +2,7 @@
   <!--
     工作台 Dashboard — 按角色适配 + 真实数据
     AM/BL：待分派、设计中、待定稿、已归档 + 最近订单
-    DS：待接单、设计中、待定稿、已完成 + 最近任务
+    DS：待确定、设计中、待定稿、已完成 + 最近任务
   -->
   <div class="dashboard">
     <!-- 欢迎语 -->
@@ -241,7 +241,7 @@ import {
   List
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
-import { listOrders, listPendingTasks, listMyAuditLogs, countArchived } from '@/api'
+import { listOrders, listPendingTasks, listMyAuditLogs, countArchived, getTaskStats } from '@/api'
 import {
   ORDER_STATUS_MAP,
   TASK_STATUS_MAP,
@@ -282,9 +282,9 @@ const todayDate = computed(() => {
 // ---------- 统计卡片配置 ----------
 const statCards = computed(() => {
   if (isDS.value) {
-    // DS：待接单、设计中、待定稿、已完成
+    // DS：待确定、设计中、待定稿、已完成
     return [
-      { key: 'pendingAccept', label: '待接单', icon: 'Clock', status: 'ASSIGNED', route: '/design-workbench', color: 'info' },
+      { key: 'pendingAccept', label: '待确定', icon: 'Clock', status: 'ASSIGNED', route: '/design-workbench', color: 'info' },
       { key: 'designing', label: '设计中', icon: 'EditPen', status: 'DESIGNING', route: '/design-workbench', color: 'warning' },
       { key: 'waitApprove', label: '待审核', icon: 'CircleCheck', status: 'WAIT_APPROVE', route: '/design-workbench', color: 'warning' },
       { key: 'completed', label: '已完成', icon: 'CircleCheckFilled', status: 'APPROVED', route: '/design-workbench', color: 'success' }
@@ -364,18 +364,13 @@ async function fetchStats() {
   statsLoading.value = true
   try {
     if (isDS.value) {
-      // DS：后端 applyDataScopeFilter 已自动按任务级 designer_id 过滤可见订单，
-      // 不再手动传 designerId 避免互斥
-      const [assignedRes, designingRes, waitRes, approvedRes] = await Promise.all([
-        listOrders({ status: 'ASSIGNED', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ status: 'WAIT_APPROVE', limit: 1 }).catch(() => ({ total: 0 })),
-        listOrders({ status: 'APPROVED', limit: 1 }).catch(() => ({ total: 0 }))
-      ])
-      stats.pendingAccept = assignedRes.total || 0
-      stats.designing = designingRes.total || 0
-      stats.waitApprove = waitRes.total || 0
-      stats.completed = approvedRes.total || 0
+      // DS：与「设计师工作台-我的任务」共用同一后端统计接口，保证口径完全一致
+      // （当前登录设计师、有效任务状态、排除逻辑删除与作废订单）
+      const res = await getTaskStats()
+      stats.pendingAccept = res.assigned || 0
+      stats.designing = res.designing || 0
+      stats.waitApprove = res.waitApprove || 0
+      stats.completed = res.approved || 0
     } else {
       // AM/BL：待分派、设计中、待定稿、已归档
       const [createdRes, designingRes, waitRes] = await Promise.all([
@@ -530,6 +525,8 @@ function logActionLabel(action) {
     SUBMIT: '提交审核',
     ASSIGN: '任务分派',
     ACCEPT: '设计师接单',
+    RESTART: '重新开始设计',
+    TASK_RESTART: '重新开始设计',
     CREATE: '创建订单',
     CANCEL: '订单作废',
     DELIVER: '订单交付',

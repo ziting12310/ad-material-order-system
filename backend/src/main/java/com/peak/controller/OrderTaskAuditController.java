@@ -6,12 +6,14 @@ import com.peak.common.enums.UserRole;
 import com.peak.dto.TaskApproveDTO;
 import com.peak.dto.TaskRejectDTO;
 import com.peak.service.OrderTaskService;
+import com.peak.vo.OrderTaskStatsVO;
 import com.peak.vo.OrderTaskVO;
 import com.peak.vo.ResultVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,6 +35,16 @@ public class OrderTaskAuditController {
 
     private final OrderTaskService orderTaskService;
 
+    /** GET /api/v1/order-tasks/stats */
+    @GetMapping("/stats")
+    @RequireRole({UserRole.DS, UserRole.BL})
+    @Operation(summary = "工作台任务状态统计",
+            description = "按当前登录用户可见范围统计各状态任务数，查询口径与工作台任务列表一致（本人任务、排除已删除与作废订单）")
+    public ResultVO<OrderTaskStatsVO> getTaskStats() {
+        return ResultVO.success(orderTaskService.getTaskStats(
+                UserContext.getUserId(), UserContext.getRole()));
+    }
+
     /** POST /api/v1/order-tasks/{taskId}/approve */
     @PostMapping("/{taskId}/approve")
     @RequireRole({UserRole.AM})
@@ -46,7 +58,7 @@ public class OrderTaskAuditController {
     /** POST /api/v1/order-tasks/{taskId}/reject */
     @PostMapping("/{taskId}/reject")
     @RequireRole({UserRole.AM})
-    @Operation(summary = "驳回任务定稿", description = "WAIT_APPROVE → DESIGNING，并自动生成修改意见，仅 AM 可操作")
+    @Operation(summary = "驳回任务定稿", description = "WAIT_APPROVE → REJECTED，并自动生成修改意见，仅 AM 可操作")
     public ResultVO<OrderTaskVO> rejectTask(@PathVariable Long taskId,
                                             @Valid @RequestBody TaskRejectDTO dto) {
         return ResultVO.success(orderTaskService.rejectTask(

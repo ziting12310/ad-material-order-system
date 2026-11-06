@@ -24,7 +24,8 @@ public enum OperationType {
     TASK_UPLOAD_VERSION("TASK_UPLOAD_VERSION", "上传设计版本"),
     TASK_FEEDBACK("TASK_FEEDBACK", "提交修改意见"),
     TASK_APPROVE("TASK_APPROVE", "确认定稿"),
-    TASK_REJECT("TASK_REJECT", "驳回定稿");
+    TASK_REJECT("TASK_REJECT", "驳回定稿"),
+    TASK_RESTART("TASK_RESTART", "重新开始设计");
 
     private final String code;
     private final String label;

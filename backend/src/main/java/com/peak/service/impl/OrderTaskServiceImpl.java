@@ -25,6 +25,7 @@ import com.peak.service.OrderService;
 import com.peak.service.OrderTaskService;
 import com.peak.util.OperationLogUtil;
 import com.peak.vo.OrderStatusUpdateResponseVO;
+import com.peak.vo.OrderTaskStatsVO;
 import com.peak.vo.OrderTaskVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -451,6 +452,48 @@ public class OrderTaskServiceImpl implements OrderTaskService {
     }
 
     // ========================================================================
+    // 【8.2】重新开始设计（REJECTED → DESIGNING）
+    // ========================================================================
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderStatusUpdateResponseVO restartDesign(Long taskId, Integer version, Long designerId) {
+        OrderTask task = findTaskOrThrow(taskId);
+        Order order = findOrderOrThrow(task.getOrderId());
+
+        if (!OrderStatus.REJECTED.getCode().equals(task.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
+                    "当前任务状态为 [%s]，仅已驳回状态可重新开始设计",
+                    OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
+        }
+
+        if (!designerId.equals(task.getDesignerId())) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "该任务未分派给您");
+        }
+        requireRole(designerId, UserRole.DS.getCode());
+
+        checkNotArchived(order);
+        checkVersion(task, version);
+
+        task.setStatus(OrderStatus.DESIGNING.getCode());
+        int rows = orderTaskMapper.updateById(task);
+        if (rows == 0) {
+            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "任务已被他人修改，请刷新后重试");
+        }
+
+        opLog.logTask(task.getOrderId(), taskId, OperationType.TASK_RESTART,
+                "重新开始设计",
+                designerId, null, null);
+
+        orderService.syncOrderStatus(task.getOrderId(), designerId);
+
+        OrderStatusUpdateResponseVO resp = new OrderStatusUpdateResponseVO();
+        resp.setId(task.getId());
+        resp.setStatus(task.getStatus());
+        resp.setVersion(task.getVersion());
+        return resp;
+    }
+
+    // ========================================================================
     // 【9】上传版本后推进状态（DESIGNING → WAIT_APPROVE）
     // 由 DesignVersionServiceImpl 上传成功后回调
     // ========================================================================
@@ -589,7 +632,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
     }
 
     // ========================================================================
-    // 【11】驳回定稿（WAIT_APPROVE → DESIGNING + 自动 feedback）
+    // 【11】驳回定稿（WAIT_APPROVE → REJECTED + 自动 feedback）
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -611,7 +654,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         checkNotArchived(order);
         checkVersion(task, version);
 
-        task.setStatus(OrderStatus.DESIGNING.getCode());
+        task.setStatus(OrderStatus.REJECTED.getCode());
         int rows = orderTaskMapper.updateById(task);
         if (rows == 0) {
             throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT, "任务已被他人修改，请刷新后重试");
@@ -659,6 +702,56 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         return tasks.stream()
                 .allMatch(t -> OrderStatus.APPROVED.getCode().equals(t.getStatus())
                         || OrderStatus.DELIVERED.getCode().equals(t.getStatus()));
+    }
+
+    // ========================================================================
+    // 【13】工作台任务状态统计（与工作台任务列表同口径）
+    // ========================================================================
+    @Override
+    public OrderTaskStatsVO getTaskStats(Long userId, String userRole) {
+        OrderTaskStatsVO stats = new OrderTaskStatsVO();
+
+        // 可见订单：逻辑删除由 @TableLogic 自动排除，作废订单显式排除
+        LambdaQueryWrapper<Order> orderWrapper = new LambdaQueryWrapper<Order>()
+                .select(Order::getId)
+                .ne(Order::getStatus, OrderStatus.CANCELLED.getCode());
+
+        Long designerId = null;
+        if (UserRole.DS.getCode().equals(userRole)) {
+            // 设计师：仅统计任务归属为当前登录设计师的数据
+            designerId = userId;
+            List<Long> ownOrderIds = orderTaskMapper.selectList(
+                    new LambdaQueryWrapper<OrderTask>()
+                            .eq(OrderTask::getDesignerId, userId)
+                            .select(OrderTask::getOrderId)
+            ).stream().map(OrderTask::getOrderId).distinct().toList();
+            if (ownOrderIds.isEmpty()) return stats;
+            orderWrapper.in(Order::getId, ownOrderIds);
+        } else if (UserRole.AM.getCode().equals(userRole)) {
+            orderWrapper.eq(Order::getCreatedBy, userId);
+        }
+
+        List<Long> visibleOrderIds = orderMapper.selectList(orderWrapper)
+                .stream().map(Order::getId).toList();
+        if (visibleOrderIds.isEmpty()) return stats;
+
+        stats.setCreated(countTasksByStatus(visibleOrderIds, designerId, OrderStatus.CREATED.getCode()));
+        stats.setAssigned(countTasksByStatus(visibleOrderIds, designerId, OrderStatus.ASSIGNED.getCode()));
+        stats.setDesigning(countTasksByStatus(visibleOrderIds, designerId, OrderStatus.DESIGNING.getCode()));
+        stats.setWaitApprove(countTasksByStatus(visibleOrderIds, designerId, OrderStatus.WAIT_APPROVE.getCode()));
+        stats.setRejected(countTasksByStatus(visibleOrderIds, designerId, OrderStatus.REJECTED.getCode()));
+        stats.setApproved(countTasksByStatus(visibleOrderIds, designerId, OrderStatus.APPROVED.getCode()));
+        return stats;
+    }
+
+    private long countTasksByStatus(List<Long> orderIds, Long designerId, String status) {
+        LambdaQueryWrapper<OrderTask> wrapper = new LambdaQueryWrapper<OrderTask>()
+                .in(OrderTask::getOrderId, orderIds)
+                .eq(OrderTask::getStatus, status);
+        if (designerId != null) {
+            wrapper.eq(OrderTask::getDesignerId, designerId);
+        }
+        return orderTaskMapper.selectCount(wrapper);
     }
 
     // ========================================================================

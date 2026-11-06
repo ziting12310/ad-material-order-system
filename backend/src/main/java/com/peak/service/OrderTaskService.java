@@ -4,6 +4,7 @@ import com.peak.dto.TaskAssignDTO;
 import com.peak.dto.TaskCreateItem;
 import com.peak.dto.TaskUpdateDTO;
 import com.peak.vo.OrderStatusUpdateResponseVO;
+import com.peak.vo.OrderTaskStatsVO;
 import com.peak.vo.OrderTaskVO;
 
 import java.util.List;
@@ -27,6 +28,9 @@ public interface OrderTaskService {
 
     OrderStatusUpdateResponseVO acceptTask(Long taskId, Integer version, Long designerId);
 
+    /** 重新开始设计（REJECTED → DESIGNING，仅任务所属设计师可操作） */
+    OrderStatusUpdateResponseVO restartDesign(Long taskId, Integer version, Long designerId);
+
     void onVersionUploaded(Long taskId, Long versionId, Long uploadedBy);
 
     /** 客户提交修改意见后回退任务状态（WAIT_APPROVE → DESIGNING） */
@@ -37,4 +41,7 @@ public interface OrderTaskService {
     OrderTaskVO rejectTask(Long taskId, String rejectNote, Integer version, Long operatorId);
 
     boolean allTasksApproved(Long orderId);
+
+    /** 工作台任务状态统计（与工作台任务列表同口径：可见订单 + 任务归属 + 有效状态） */
+    OrderTaskStatsVO getTaskStats(Long userId, String userRole);
 }

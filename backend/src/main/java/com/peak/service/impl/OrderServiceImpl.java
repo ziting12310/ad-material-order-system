@@ -915,6 +915,7 @@ public class OrderServiceImpl implements OrderService {
      * 状态聚合规则（取"最远进展"）：
      *  全部 APPROVED → APPROVED
      *  任意 WAIT_APPROVE → WAIT_APPROVE
+     *  任意 REJECTED（待设计师重新开始）→ DESIGNING
      *  任意 DESIGNING → DESIGNING
      *  任意 ASSIGNED → ASSIGNED
      *  全部 CREATED → CREATED
@@ -941,6 +942,11 @@ public class OrderServiceImpl implements OrderService {
                 allDelivered = false;
             } else if (OrderStatus.WAIT_APPROVE.getCode().equals(s)) {
                 hasWaitApprove = true;
+                allCompleted = false;
+                allDelivered = false;
+            } else if (OrderStatus.REJECTED.getCode().equals(s)) {
+                // 已驳回：等待设计师重新开始设计，订单侧按设计中聚合
+                hasDesigning = true;
                 allCompleted = false;
                 allDelivered = false;
             } else if (OrderStatus.DESIGNING.getCode().equals(s)) {
