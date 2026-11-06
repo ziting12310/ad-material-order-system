@@ -178,13 +178,7 @@
 
         <!-- 修改意见 -->
         <el-tab-pane label="修改意见" name="feedbacks">
-          <!-- 提交意见按钮（仅 WAIT_APPROVE 状态且角色为 AM/BL 时显示） -->
-          <div v-if="canSubmitFeedback" class="feedback-toolbar">
-            <el-button type="primary" :icon="EditPen" @click="openFeedbackDialog">
-              提交意见
-            </el-button>
-          </div>
-
+          <!-- 只读展示：历史意见全量渲染，意见录入入口仅保留在驳回定稿弹窗内 -->
           <div class="feedback-list">
             <div
               v-for="(item, index) in allFeedbacks"
@@ -253,65 +247,13 @@
         </el-tab-pane>
       </el-tabs>
     </div>
-
-    <!-- 提交修改意见弹窗 -->
-    <el-dialog
-      v-model="feedbackDialog.visible"
-      title="提交修改意见"
-      width="520px"
-      :close-on-click-modal="false"
-    >
-      <el-form
-        ref="feedbackFormRef"
-        :model="feedbackForm"
-        :rules="feedbackRules"
-        label-width="80px"
-      >
-        <el-form-item label="订单编号">
-          <span class="mono-text">{{ detail.orderNo || '—' }}</span>
-        </el-form-item>
-        <el-form-item label="选择任务" prop="taskId">
-          <el-select
-            v-model="feedbackForm.taskId"
-            placeholder="请选择意见针对的任务"
-            style="width: 100%"
-            @change="syncFeedbackTaskVersion"
-          >
-            <el-option
-              v-for="t in detail.tasks || []"
-              :key="t.id"
-              :label="(t.taskNo || t.id) + ' - ' + getMaterialLabel(t.materialType)"
-              :value="t.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="意见内容" prop="content">
-          <el-input
-            v-model="feedbackForm.content"
-            type="textarea"
-            :rows="5"
-            placeholder="请输入修改意见内容（1-500字）"
-            maxlength="500"
-            show-word-limit
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="feedbackDialog.visible = false">取消</el-button>
-        <el-button type="primary" :loading="feedbackDialog.loading" @click="handleSubmitFeedback">
-          提交
-        </el-button>
-      </template>
-    </el-dialog>
   </el-drawer>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { EditPen } from '@element-plus/icons-vue'
-import { getOrderDetail, submitFeedback, listFeedbacks } from '@/api'
-import { useUserStore } from '@/stores/user'
+import { getOrderDetail } from '@/api'
 import {
   MATERIAL_OPTIONS,
   getOrderStatusLabel,
@@ -319,8 +261,6 @@ import {
   getMaterialLabel,
   TASK_STATUS_MAP
 } from '@/constants'
-
-const userStore = useUserStore()
 
 // ---------- Props / Emits ----------
 const props = defineProps({
@@ -350,14 +290,6 @@ const detail = ref({})
 // 修改意见：显式 computed，确保所有 feedback（PENDING/PROCESSED/其他状态）全量展示，
 // 不受任何隐式过滤影响
 const allFeedbacks = computed(() => detail.value.feedbacks || [])
-
-// ---------- 角色/权限判断 ----------
-const canSubmitFeedback = computed(() => {
-  const role = userStore.userInfo?.role
-  const status = detail.value?.status
-  // 提交修改意见 AM/BL 均可（审核职责已从 BL 移交 AM，但意见提交仍保留 BL 权限）
-  return status === 'WAIT_APPROVE' && (role === 'AM' || role === 'BL')
-})
 
 // ---------- 操作日志按时间倒序排列 ----------
 const sortedLogs = computed(() => {
@@ -474,16 +406,6 @@ async function fetchDetail() {
   }
 }
 
-// ---------- 刷新意见列表 ----------
-async function refreshFeedbacks() {
-  try {
-    const res = await listFeedbacks(props.orderId)
-    detail.value.feedbacks = res.list || res || []
-  } catch (e) {
-    // 保持原状
-  }
-}
-
 function handleOpen() {
   activeTab.value = 'basic'
   detail.value = {}
@@ -499,77 +421,6 @@ function previewVersion(row) {
   } else {
     ElMessage.info('预览功能开发中')
   }
-}
-
-// ========== 提交修改意见 ==========
-const feedbackDialog = ref({
-  visible: false,
-  loading: false
-})
-const feedbackFormRef = ref(null)
-// version 是所选任务的乐观锁版本号（随任务选择自动带出，无需手填）
-const feedbackForm = ref({
-  taskId: null,
-  version: null,
-  content: ''
-})
-const feedbackRules = {
-  taskId: [
-    { required: true, message: '请选择任务', trigger: 'change' }
-  ],
-  content: [
-    { required: true, message: '请输入意见内容', trigger: 'blur' },
-    { min: 1, max: 500, message: '长度在 1 到 500 个字符', trigger: 'blur' }
-  ]
-}
-
-function openFeedbackDialog() {
-  // 默认选中第一个任务，version 取该任务的乐观锁版本号
-  const tasks = detail.value.tasks || []
-  feedbackForm.value.taskId = tasks.length > 0 ? tasks[0].id : null
-  syncFeedbackTaskVersion()
-  feedbackForm.value.content = ''
-  feedbackDialog.value.visible = true
-  feedbackDialog.value.loading = false
-}
-
-// 任务切换时同步乐观锁 version
-function syncFeedbackTaskVersion() {
-  const tasks = detail.value.tasks || []
-  const task = tasks.find(t => t.id === feedbackForm.value.taskId)
-  feedbackForm.value.version = task ? task.version : null
-}
-
-async function handleSubmitFeedback() {
-  if (!feedbackFormRef.value) return
-  feedbackFormRef.value.validate(async valid => {
-    if (!valid) return
-    // 后端 OrderFeedbackCreateRequest 要求 orderId + taskId + version(任务乐观锁)
-    if (feedbackForm.value.version == null) {
-      ElMessage.error('所选任务缺少乐观锁 version，请刷新详情后重试')
-      return
-    }
-
-    feedbackDialog.value.loading = true
-    try {
-      await submitFeedback({
-        orderId: props.orderId,
-        taskId: feedbackForm.value.taskId,
-        version: feedbackForm.value.version,
-        content: feedbackForm.value.content
-      })
-      ElMessage.success('意见提交成功')
-      feedbackDialog.value.visible = false
-      // 刷新意见列表 + 订单详情
-      refreshFeedbacks()
-      fetchDetail()
-      emit('refresh')
-    } catch (e) {
-      // 错误已由拦截器处理
-    } finally {
-      feedbackDialog.value.loading = false
-    }
-  })
 }
 </script>
 
@@ -660,12 +511,6 @@ async function handleSubmitFeedback() {
 }
 
 /* ========== 修改意见 ========== */
-.feedback-toolbar {
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--gray-100);
-}
-
 .feedback-list {
   margin-top: 12px;
   display: flex;

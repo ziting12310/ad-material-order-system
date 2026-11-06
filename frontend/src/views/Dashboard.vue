@@ -63,7 +63,7 @@
         <el-card class="section-card" shadow="never">
           <template #header>
             <div class="header-flex">
-              <span class="section-title">{{ isDS ? '最近任务' : '最近订单' }}</span>
+              <span class="section-title">{{ (isDS || isBL) ? '最近任务' : '最近订单' }}</span>
               <div class="header-right">
                 <!-- 统计卡片联动筛选提示 -->
                 <el-tag
@@ -89,8 +89,8 @@
             :show-header="true"
             size="default"
           >
-            <!-- AM/BL：订单列表 -->
-            <template v-if="!isDS">
+            <!-- AM：订单列表 -->
+            <template v-if="isAM">
               <el-table-column prop="orderNo" label="订单号" width="160">
                 <template #default="{ row }">
                   <span class="mono-text link-text" @click="viewOrderDetail(row)">{{ row.orderNo }}</span>
@@ -110,6 +110,32 @@
                 </template>
               </el-table-column>
               <el-table-column prop="createdAt" label="创建时间" width="160">
+                <template #default="{ row }">
+                  {{ formatDateTime(row.createdAt) }}
+                </template>
+              </el-table-column>
+            </template>
+            <!-- BL：任务列表（与统计卡片同口径） -->
+            <template v-else-if="isBL">
+              <el-table-column label="订单号" width="160">
+                <template #default="{ row }">
+                  <span class="mono-text link-text" @click="viewOrderDetail(row)">{{ row.orderNo || '—' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="customerName" label="公司名称" min-width="140" />
+              <el-table-column label="状态" width="100" align="center">
+                <template #default="{ row }">
+                  <el-tag
+                    :type="getTaskStatusType(row.status)"
+                    effect="light"
+                    round
+                    size="small"
+                  >
+                    {{ getTaskStatusLabel(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="创建时间" width="160">
                 <template #default="{ row }">
                   {{ formatDateTime(row.createdAt) }}
                 </template>
@@ -148,7 +174,7 @@
           </el-table>
           <el-empty
             v-if="!recentLoading && recentList.length === 0"
-            :description="isDS ? '暂无任务' : '暂无订单'"
+            :description="(isDS || isBL) ? '暂无任务' : '暂无订单'"
             :image-size="80"
           />
         </el-card>
@@ -369,8 +395,15 @@ async function fetchStats() {
       stats.designing = res.designing || 0
       stats.waitApprove = res.waitApprove || 0
       stats.completed = res.approved || 0
+    } else if (isBL.value) {
+      // 业务负责人：待分派/设计中/待审核 与「订单分派」页共用同一统计接口
+      // （后端 getTaskStats，任务级口径 + 排除作废订单），保证两边数字完全一致
+      const res = await getTaskStats()
+      stats.pendingAssign = res.created || 0
+      stats.designing = res.designing || 0
+      stats.waitApprove = res.waitApprove || 0
     } else {
-      // AM/BL：待分派、设计中、待定稿、已归档
+      // AM：待分派、设计中、待定稿、已归档（订单级口径）
       const [createdRes, designingRes, waitRes] = await Promise.all([
         listOrders({ status: 'CREATED', limit: 1 }).catch(() => ({ total: 0 })),
         listOrders({ status: 'DESIGNING', limit: 1 }).catch(() => ({ total: 0 })),
@@ -379,8 +412,10 @@ async function fetchStats() {
       stats.pendingAssign = createdRes.total || 0
       stats.designing = designingRes.total || 0
       stats.waitApprove = waitRes.total || 0
+    }
 
-      // 已归档走专门的统计接口
+    // 已归档（AM/BL）走专门的统计接口
+    if (isAM.value || isBL.value) {
       try {
         const archivedRes = await countArchived()
         stats.archived = archivedRes.count || archivedRes.total || 0
@@ -450,8 +485,38 @@ async function fetchRecent(filterStatus = null) {
         hasMore = !!res.hasMore && !!cursor
       }
       recentList.value = archived.slice(0, 5)
+    } else if (isBL.value) {
+      // 业务负责人：与首页卡片统计（getTaskStats）完全同源的任务级口径
+      // 数据范围：排除作废订单，任务级状态筛选；数字与「订单分派」页一致
+      const tasks = []
+      let cursor = null
+      let hasMore = true
+      while (hasMore) {
+        const params = { limit: 100 }
+        if (cursor) params.cursor = cursor
+        const res = await listOrders(params)
+        ;(res.list || []).forEach(order => {
+          if (order.status === 'CANCELLED') return
+          ;(order.tasks || []).forEach(task => {
+            // 任务级状态判断，与后端 countTasksByStatus 一致
+            if (filterStatus && task.status !== filterStatus) return
+            tasks.push({
+              ...task,
+              orderId: order.id,
+              orderNo: order.orderNo,
+              customerName: order.customerName,
+              createdAt: order.createdAt
+            })
+          })
+        })
+        cursor = res.nextCursor || null
+        hasMore = !!res.hasMore && !!cursor
+        // 未选卡片时只展示最近 5 条；选中卡片时取全量，保证行数与卡片数字匹配
+        if (!filterStatus && tasks.length >= 5) break
+      }
+      recentList.value = filterStatus ? tasks : tasks.slice(0, 5)
     } else {
-      // AM/BL 最近5条订单（带可选状态筛选）
+      // AM 最近5条订单（带可选状态筛选）
       const params = { limit: 5 }
       if (filterStatus) params.status = filterStatus
       const res = await listOrders(params)
@@ -516,7 +581,7 @@ function handleQuickAction(item) {
 
 // ---------- 操作：查看全部 ----------
 function handleViewAll() {
-  if (isDS.value) {
+  if (isDS.value || isBL.value) {
     router.push('/design-workbench')
   } else {
     router.push('/orders')
@@ -525,7 +590,8 @@ function handleViewAll() {
 
 // ---------- 操作：查看订单详情 ----------
 function viewOrderDetail(row) {
-  currentViewOrderId.value = row.id
+  // BL 任务行的订单ID挂在 orderId；AM/DS 行本身即订单
+  currentViewOrderId.value = row.orderId || row.id
   detailDrawerVisible.value = true
 }
 
