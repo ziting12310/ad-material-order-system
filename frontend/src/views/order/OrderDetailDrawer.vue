@@ -86,7 +86,7 @@
                 <span class="mono-text">{{ detail.orderNo || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="物料" width="100">
+            <el-table-column label="物料" width="120">
               <template #default="{ row }">
                 {{ getMaterialLabel(row.materialType) }}
               </template>
@@ -138,7 +138,7 @@
           >
             <el-table-column label="版本号" width="100">
               <template #default="{ row }">
-                <span class="version-tag">V{{ row.version || row.versionNo || '1' }}</span>
+                <span class="version-tag">V{{ row.versionNo || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column label="上传人" width="100">
@@ -151,7 +151,7 @@
                 {{ formatDateTime(row.uploadedAt || row.createdAt) }}
               </template>
             </el-table-column>
-            <el-table-column label="版本说明" min-width="200">
+            <el-table-column label="版本说明" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.versionNote || '—' }}
               </template>
@@ -178,10 +178,16 @@
 
         <!-- 修改意见 -->
         <el-tab-pane label="修改意见" name="feedbacks">
-          <!-- 只读展示：历史意见全量渲染，意见录入入口仅保留在驳回定稿弹窗内 -->
+          <!-- 提交意见按钮（仅 WAIT_APPROVE 状态且角色为 AM/BL 时显示） -->
+          <div v-if="canSubmitFeedback" class="feedback-toolbar">
+            <el-button type="primary" :icon="EditPen" @click="openFeedbackDialog">
+              提交意见
+            </el-button>
+          </div>
+
           <div class="feedback-list">
             <div
-              v-for="(item, index) in allFeedbacks"
+              v-for="(item, index) in detail.feedbacks || []"
               :key="item.id || index"
               class="feedback-item"
             >
@@ -247,13 +253,129 @@
         </el-tab-pane>
       </el-tabs>
     </div>
+
+    <!-- 提交修改意见弹窗 -->
+    <el-dialog
+      v-model="feedbackDialog.visible"
+      title="提交修改意见"
+      width="520px"
+      :close-on-click-modal="false"
+    >
+      <el-form
+        ref="feedbackFormRef"
+        :model="feedbackForm"
+        :rules="feedbackRules"
+        label-width="80px"
+      >
+        <el-form-item label="订单编号">
+          <span class="mono-text">{{ detail.orderNo || '—' }}</span>
+        </el-form-item>
+        <el-form-item label="选择任务" prop="taskId">
+          <el-select
+            v-model="feedbackForm.taskId"
+            placeholder="请选择意见针对的任务"
+            style="width: 100%"
+            @change="syncFeedbackTaskVersion"
+          >
+            <el-option
+              v-for="t in detail.tasks || []"
+              :key="t.id"
+              :label="(t.displayTaskNo || t.taskNo || t.id) + ' - ' + getMaterialLabel(t.materialType)"
+              :value="t.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="意见内容" prop="content">
+          <el-input
+            v-model="feedbackForm.content"
+            type="textarea"
+            :rows="5"
+            placeholder="请输入修改意见内容（1-500字）"
+            maxlength="500"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="feedbackDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackDialog.loading" @click="handleSubmitFeedback">
+          提交
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 文件预览弹窗 -->
+    <el-dialog
+      v-model="previewVisible"
+      width="780px"
+      :title="'文件预览 — ' + previewFileName"
+      :close-on-click-modal="true"
+      append-to-body
+    >
+      <div class="preview-meta">
+        <span class="preview-ext">{{ previewFileExt.toUpperCase() }}</span>
+        <span class="preview-size">{{ formatFileSize(previewFileSize) }}</span>
+        <span class="preview-filename">{{ previewFileName }}</span>
+        <el-button
+          type="primary"
+          link
+          size="small"
+          :href="previewFileUrl"
+          target="_blank"
+        >
+          新窗口打开 / 下载
+        </el-button>
+      </div>
+
+      <!-- 图片 -->
+      <div
+        v-if="IMAGE_EXTS.includes(previewFileExt)"
+        class="preview-wrap preview-wrap--image"
+      >
+        <img :src="previewFileUrl" class="preview-img" :alt="previewFileName" />
+      </div>
+
+      <!-- PDF -->
+      <div
+        v-else-if="PDF_EXTS.includes(previewFileExt)"
+        class="preview-wrap preview-wrap--pdf"
+      >
+        <iframe
+          :src="previewFileUrl"
+          width="100%"
+          height="520px"
+          class="preview-frame"
+        />
+      </div>
+
+      <!-- 文本 -->
+      <div
+        v-else-if="TEXT_EXTS.includes(previewFileExt)"
+        class="preview-wrap preview-wrap--text"
+      >
+        <pre class="preview-text">{{ previewText || '加载中…' }}</pre>
+      </div>
+
+      <!-- 其他：二进制/不支持预览的格式 -->
+      <div v-else class="preview-wrap preview-wrap--unsupported">
+        <div class="unsupported-icon">📄</div>
+        <div class="unsupported-title">浏览器不支持直接预览此文件类型</div>
+        <div class="unsupported-hint">请点击下方按钮下载后用对应软件打开</div>
+        <el-button type="primary" :href="previewFileUrl" target="_blank">
+          下载文件
+        </el-button>
+      </div>
+    </el-dialog>
   </el-drawer>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getOrderDetail } from '@/api'
+import { EditPen } from '@element-plus/icons-vue'
+import { getOrderDetail, submitFeedback, listFeedbacks } from '@/api'
+import { applyDisplayTaskNo } from '@/composables/useDisplayTaskNo'
+import { useUserStore } from '@/stores/user'
 import {
   MATERIAL_OPTIONS,
   getOrderStatusLabel,
@@ -261,6 +383,8 @@ import {
   getMaterialLabel,
   TASK_STATUS_MAP
 } from '@/constants'
+
+const userStore = useUserStore()
 
 // ---------- Props / Emits ----------
 const props = defineProps({
@@ -287,9 +411,13 @@ const loading = ref(false)
 const activeTab = ref('basic')
 const detail = ref({})
 
-// 修改意见：显式 computed，确保所有 feedback（PENDING/PROCESSED/其他状态）全量展示，
-// 不受任何隐式过滤影响
-const allFeedbacks = computed(() => detail.value.feedbacks || [])
+// ---------- 角色/权限判断 ----------
+const canSubmitFeedback = computed(() => {
+  const role = userStore.userInfo?.role
+  const status = detail.value?.status
+  // 提交修改意见 AM/BL 均可（审核职责已从 BL 移交 AM，但意见提交仍保留 BL 权限）
+  return status === 'WAIT_APPROVE' && (role === 'AM' || role === 'BL')
+})
 
 // ---------- 操作日志按时间倒序排列 ----------
 const sortedLogs = computed(() => {
@@ -398,11 +526,25 @@ async function fetchDetail() {
   try {
     const res = await getOrderDetail(props.orderId)
     detail.value = res || {}
+    // 给物料任务追加 displayTaskNo（公司名_NNN）
+    if (detail.value.tasks?.length && detail.value.customerName) {
+      applyDisplayTaskNo(detail.value.tasks)
+    }
   } catch (e) {
     // 错误已由拦截器处理
     detail.value = {}
   } finally {
     loading.value = false
+  }
+}
+
+// ---------- 刷新意见列表 ----------
+async function refreshFeedbacks() {
+  try {
+    const res = await listFeedbacks(props.orderId)
+    detail.value.feedbacks = res.list || res || []
+  } catch (e) {
+    // 保持原状
   }
 }
 
@@ -414,13 +556,126 @@ function handleOpen() {
   }
 }
 
-// ---------- 操作 ----------
+// ---------- 文件预览 ----------
+const previewVisible = ref(false)
+const previewFileUrl = ref('')
+const previewFileExt = ref('')
+const previewFileName = ref('')
+const previewFileSize = ref(0)
+const previewText = ref('')
+
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'ico']
+const PDF_EXTS = ['pdf']
+const TEXT_EXTS = ['txt', 'csv', 'json', 'xml', 'log', 'md']
+
+function getFileExt(fileName, url) {
+  const name = fileName || ''
+  const fromName = name.includes('.') ? name.split('.').pop() : ''
+  if (fromName) return fromName.toLowerCase()
+  const urlPart = (url || '').split('?')[0]
+  const fromUrl = urlPart.includes('.') ? urlPart.split('.').pop() : ''
+  return fromUrl.toLowerCase()
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes <= 0) return '—'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB'
+}
+
 function previewVersion(row) {
-  if (row.previewUrl || row.fileUrl || row.url) {
-    window.open(row.previewUrl || row.fileUrl || row.url, '_blank')
-  } else {
-    ElMessage.info('预览功能开发中')
+  const url = row.fileUrl || row.previewUrl || row.url
+  if (!url) {
+    ElMessage.error('文件地址缺失，无法预览')
+    return
   }
+  const ext = getFileExt(row.fileName, url)
+  previewFileUrl.value = url
+  previewFileExt.value = ext
+  previewFileName.value = row.fileName || '未命名文件'
+  previewFileSize.value = row.fileSize || 0
+  previewText.value = ''
+  previewVisible.value = true
+
+  // 文本类型额外 fetch 内容
+  if (TEXT_EXTS.includes(ext)) {
+    fetch(url)
+      .then(r => r.text())
+      .then(t => { previewText.value = t })
+      .catch(() => { previewText.value = '无法加载文件内容' })
+  }
+}
+
+// ========== 提交修改意见 ==========
+const feedbackDialog = ref({
+  visible: false,
+  loading: false
+})
+const feedbackFormRef = ref(null)
+// version 是所选任务的乐观锁版本号（随任务选择自动带出，无需手填）
+const feedbackForm = ref({
+  taskId: null,
+  version: null,
+  content: ''
+})
+const feedbackRules = {
+  taskId: [
+    { required: true, message: '请选择任务', trigger: 'change' }
+  ],
+  content: [
+    { required: true, message: '请输入意见内容', trigger: 'blur' },
+    { min: 1, max: 500, message: '长度在 1 到 500 个字符', trigger: 'blur' }
+  ]
+}
+
+function openFeedbackDialog() {
+  // 默认选中第一个任务，version 取该任务的乐观锁版本号
+  const tasks = detail.value.tasks || []
+  feedbackForm.value.taskId = tasks.length > 0 ? tasks[0].id : null
+  syncFeedbackTaskVersion()
+  feedbackForm.value.content = ''
+  feedbackDialog.value.visible = true
+  feedbackDialog.value.loading = false
+}
+
+// 任务切换时同步乐观锁 version
+function syncFeedbackTaskVersion() {
+  const tasks = detail.value.tasks || []
+  const task = tasks.find(t => t.id === feedbackForm.value.taskId)
+  feedbackForm.value.version = task ? task.version : null
+}
+
+async function handleSubmitFeedback() {
+  if (!feedbackFormRef.value) return
+  feedbackFormRef.value.validate(async valid => {
+    if (!valid) return
+    // 后端 OrderFeedbackCreateRequest 要求 orderId + taskId + version(任务乐观锁)
+    if (feedbackForm.value.version == null) {
+      ElMessage.error('所选任务缺少乐观锁 version，请刷新详情后重试')
+      return
+    }
+
+    feedbackDialog.value.loading = true
+    try {
+      await submitFeedback({
+        orderId: props.orderId,
+        taskId: feedbackForm.value.taskId,
+        version: feedbackForm.value.version,
+        content: feedbackForm.value.content
+      })
+      ElMessage.success('意见提交成功')
+      feedbackDialog.value.visible = false
+      // 刷新意见列表 + 订单详情
+      refreshFeedbacks()
+      fetchDetail()
+      emit('refresh')
+    } catch (e) {
+      // 错误已由拦截器处理
+    } finally {
+      feedbackDialog.value.loading = false
+    }
+  })
 }
 </script>
 
@@ -511,6 +766,12 @@ function previewVersion(row) {
 }
 
 /* ========== 修改意见 ========== */
+.feedback-toolbar {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
 .feedback-list {
   margin-top: 12px;
   display: flex;
@@ -592,5 +853,120 @@ function previewVersion(row) {
   color: var(--gray-600);
   line-height: 1.5;
   padding-left: 2px;
+}
+
+/* ========== 文件预览弹窗 ========== */
+.preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: var(--gray-50);
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--gray-100);
+  font-size: 13px;
+}
+
+.preview-ext {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--primary-light);
+  color: var(--primary-color);
+  border-radius: 4px;
+  font-weight: 600;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  min-width: 36px;
+  text-align: center;
+}
+
+.preview-size {
+  color: var(--gray-500);
+}
+
+.preview-filename {
+  flex: 1;
+  color: var(--gray-800);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-wrap {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--border-radius-sm);
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.preview-wrap--image {
+  background: #1a1a1a;
+  max-height: 70vh;
+}
+
+.preview-img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-wrap--pdf {
+  background: #fff;
+  padding: 0;
+}
+
+.preview-frame {
+  border: none;
+  background: #fff;
+  display: block;
+}
+
+.preview-wrap--text {
+  background: #1e1e1e;
+  padding: 16px;
+  align-items: flex-start;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.preview-text {
+  margin: 0;
+  color: #e0e0e0;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.preview-wrap--unsupported {
+  background: var(--gray-50);
+  flex-direction: column;
+  padding: 48px 24px;
+  gap: 12px;
+  border-style: dashed;
+}
+
+.unsupported-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.unsupported-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.unsupported-hint {
+  font-size: 13px;
+  color: var(--gray-500);
+  margin-bottom: 4px;
 }
 </style>

@@ -245,3 +245,53 @@ export function addReferenceFile(orderId, data) {
 export function deleteReferenceFile(orderId, fileId) {
     return request.delete(`/orders/${orderId}/reference-files/${fileId}`)
 }
+
+// ==================== 文件上传底层 API（供 FileUpload 组件使用） ====================
+
+/**
+ * 获取上传凭证（模拟 OSS presign）
+ * POST /api/v1/files/presign
+ * body: { fileType: "design|reference", fileName, fileSize, contentType }
+ * 返回: { fileId, uploadUrl, accessUrl }
+ */
+export function presignFile(data) {
+    return request.post('/files/presign', data)
+}
+
+/**
+ * 执行文件落盘（multipart/form-data）
+ * POST /api/v1/files/upload?fileId={fileId}
+ * form: file(文件), orderId(可选), taskId(可选)
+ * 返回: { fileId, accessUrl }
+ * 注意：必须直接用 axios，不要用 request 实例的 post，避免 Content-Type 被覆盖
+ */
+import axios from 'axios'
+export async function uploadFileMultipart(fileId, rawFile, { orderId = null, taskId = null } = {}) {
+    const form = new FormData()
+    form.append('file', rawFile)
+    const params = new URLSearchParams()
+    params.append('fileId', fileId)
+    if (orderId != null) params.append('orderId', orderId)
+    if (taskId != null) params.append('taskId', taskId)
+
+    // baseURL 已在 request.js 设为 '/api/v1'，但 axios 实例不共享，用绝对路径
+    const base = request.defaults.baseURL || '/api/v1'
+    const resp = await axios.post(`${base}/files/upload?${params.toString()}`, form, {
+        headers: {
+            // 让浏览器自动设置 Content-Type: multipart/form-data + boundary
+        },
+        // 复用 JWT token
+        transformRequest: [(data, headers) => {
+            const token = localStorage.getItem('amoms_token')
+            if (token) headers['Authorization'] = `Bearer ${token}`
+            return data
+        }]
+    })
+    // 与 request 拦截器保持一致：解包 ResultVO → data
+    const res = resp.data
+    if (res && typeof res === 'object' && 'code' in res) {
+        if (res.code === 'SUCCESS' || res.code === 0) return res.data
+        throw new Error(res.message || '上传失败')
+    }
+    return res
+}

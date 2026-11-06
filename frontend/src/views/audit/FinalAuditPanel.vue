@@ -198,8 +198,8 @@
                     <span v-if="item.operatorName" class="log-operator">
                       操作人：{{ item.operatorName }}
                     </span>
-                    <span v-if="item.taskNo" class="log-task">
-                      任务：{{ item.taskNo }}
+                    <span v-if="item.displayTaskNo || item.taskNo" class="log-task">
+                      任务：{{ item.displayTaskNo || item.taskNo }}
                     </span>
                   </div>
                 </div>
@@ -460,7 +460,7 @@
         <div class="dialog-text">
           <p class="dialog-title">确定确认该任务定稿？</p>
           <p class="dialog-sub">
-            任务编号：<span class="mono-text">{{ approveDialog.row?.taskNo || approveDialog.row?.id }}</span>
+            任务编号：<span class="mono-text">{{ approveDialog.row?.displayTaskNo || approveDialog.row?.taskNo || approveDialog.row?.id }}</span>
           </p>
           <p class="dialog-sub">
             所属订单：{{ approveDialog.row?.orderNo || '—' }}
@@ -508,7 +508,7 @@
         label-width="80px"
       >
         <el-form-item label="任务编号">
-          <span class="mono-text">{{ rejectDialog.row?.taskNo || rejectDialog.row?.id }}</span>
+          <span class="mono-text">{{ rejectDialog.row?.displayTaskNo || rejectDialog.row?.taskNo || rejectDialog.row?.id }}</span>
         </el-form-item>
         <el-form-item label="所属订单">
           {{ rejectDialog.row?.orderNo || '—' }}
@@ -592,7 +592,7 @@
         >
           <el-table-column label="任务编号" width="130">
             <template #default="{ row }">
-              <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
+              <span class="mono-text">{{ row.displayTaskNo || row.taskNo || row.id || '—' }}</span>
             </template>
           </el-table-column>
           <el-table-column label="物料" width="100">
@@ -666,6 +666,7 @@ import {
 } from '@/api/audit'
 import { listOrders } from '@/api/order'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { flattenOrdersWithTaskNo, applyDisplayTaskNo } from '@/composables/useDisplayTaskNo'
 import ClientPagination from '@/components/common/ClientPagination.vue'
 import OrderDetailDrawer from '@/views/order/OrderDetailDrawer.vue'
 import {
@@ -800,6 +801,8 @@ async function fetchPendingList() {
       hasMore = !!res.hasMore && !!cursor
     }
 
+    // 给任务行追加 displayTaskNo（公司名_NNN 格式）
+    applyDisplayTaskNo(allTasks)
     pendingList.value = allTasks
     resetPendingPage()
   } catch (e) {

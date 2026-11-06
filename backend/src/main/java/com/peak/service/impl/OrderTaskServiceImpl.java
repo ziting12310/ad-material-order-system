@@ -129,7 +129,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         }
 
         return tasks.stream()
-                .map(t -> buildTaskVO(t, userNames.get(t.getDesignerId()), versionNoMap.get(t.getFinalVersionId())))
+                .map(t -> buildTaskVO(t, userNames.get(t.getDesignerId()), versionNoMap.get(t.getFinalVersionId()), order))
                 .collect(Collectors.toList());
     }
 
@@ -154,7 +154,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
             finalVersionNo = v != null ? v.getVersionNo() : null;
         }
 
-        return buildTaskVO(task, designerName, finalVersionNo);
+        return buildTaskVO(task, designerName, finalVersionNo, order);
     }
 
     // ========================================================================
@@ -210,7 +210,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
 
         String designerName = task.getDesignerId() != null
                 ? userMapper.selectById(task.getDesignerId()).getName() : null;
-        return buildTaskVO(task, designerName, null);
+        return buildTaskVO(task, designerName, null, orderMapper.selectById(task.getOrderId()));
     }
 
     // ========================================================================
@@ -294,7 +294,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
                 ? userMapper.selectById(task.getDesignerId()).getName() : null;
         String finalVer = task.getFinalVersionId() != null
                 ? designVersionMapper.selectById(task.getFinalVersionId()).getVersionNo() : null;
-        return buildTaskVO(task, designerName, finalVer);
+        return buildTaskVO(task, designerName, finalVer, orderMapper.selectById(task.getOrderId()));
     }
 
     // ========================================================================
@@ -420,7 +420,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
 
         orderService.syncOrderStatus(task.getOrderId(), operatorId);
 
-        return buildTaskVO(task, designer.getName(), null);
+        return buildTaskVO(task, designer.getName(), null, orderMapper.selectById(task.getOrderId()));
     }
 
     // ========================================================================
@@ -654,7 +654,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         String approverName = userMapper.selectById(operatorId).getName();
         OrderTaskVO vo = buildTaskVO(task,
                 task.getDesignerId() != null ? userMapper.selectById(task.getDesignerId()).getName() : null,
-                latest.getVersionNo());
+                latest.getVersionNo(), orderMapper.selectById(task.getOrderId()));
         vo.setApprovedByName(approverName);
         return vo;
     }
@@ -715,7 +715,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
 
         String designerName = task.getDesignerId() != null
                 ? userMapper.selectById(task.getDesignerId()).getName() : null;
-        return buildTaskVO(task, designerName, null);
+        return buildTaskVO(task, designerName, null, orderMapper.selectById(task.getOrderId()));
     }
 
     // ========================================================================
@@ -860,7 +860,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         return t != null ? t.getLabel() : code;
     }
 
-    private OrderTaskVO buildTaskVO(OrderTask task, String designerName, String finalVersionNo) {
+    private OrderTaskVO buildTaskVO(OrderTask task, String designerName, String finalVersionNo, Order order) {
         OrderTaskVO vo = new OrderTaskVO();
         vo.setId(task.getId());
         vo.setTaskNo(task.getTaskNo());
@@ -882,6 +882,11 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         vo.setSortOrder(task.getSortOrder());
         vo.setVersion(task.getVersion());
         vo.setCreatedAt(task.getCreatedAt());
+        // 补订单级字段（如果调用方提供了 order）
+        if (order != null) {
+            vo.setCustomerName(order.getCustomerName());
+            vo.setOrderNo(order.getOrderNo());
+        }
         return vo;
     }
 }

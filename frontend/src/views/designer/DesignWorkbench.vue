@@ -417,7 +417,7 @@
         label-width="80px"
       >
         <el-form-item label="任务编号">
-          <span class="mono-text">{{ assignDialog.row?.taskNo || assignDialog.row?.id || '—' }}</span>
+          <span class="mono-text">{{ assignDialog.row?.displayTaskNo || assignDialog.row?.taskNo || assignDialog.row?.id || '—' }}</span>
         </el-form-item>
         <el-form-item label="所属订单">
           {{ assignDialog.row?.orderNo || '—' }}
@@ -478,6 +478,7 @@ import {
 } from '@element-plus/icons-vue'
 import { listOrders, acceptTask, uploadDesignVersion, assignTask, assignOrder, getOrderDetail, listDesigners, getTaskStats, restartDesign } from '@/api'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { applyDisplayTaskNo } from '@/composables/useDisplayTaskNo'
 import ClientPagination from '@/components/common/ClientPagination.vue'
 import {
   MATERIAL_OPTIONS,
@@ -631,6 +632,8 @@ function flattenOrders(orders) {
       })
     }
   })
+  // 给任务行追加 displayTaskNo（公司名_NNN 格式）
+  applyDisplayTaskNo(tasks)
   return tasks
 }
 
@@ -772,7 +775,7 @@ async function handleAccept(row) {
     }
     for (const t of myTasks) {
       if (t.version == null) {
-        ElMessage.error(`任务 ${t.taskNo || t.id} 缺少乐观锁 version，无法标记为待确定，请刷新重试`)
+        ElMessage.error(`任务 ${t.displayTaskNo || t.taskNo || t.id} 缺少乐观锁 version，无法标记为待确定，请刷新重试`)
         return
       }
       await acceptTask(orderId, t.id, t.version)
@@ -795,7 +798,7 @@ async function handleRestart(row) {
   }
   try {
     await ElMessageBox.confirm(
-      `确定将任务 ${row.taskNo || row.id} 重新开始设计吗？`,
+      `确定将任务 ${row.displayTaskNo || row.taskNo || row.id} 重新开始设计吗？`,
       '重新开始设计',
       {
         confirmButtonText: '确定',
@@ -1031,7 +1034,7 @@ async function handleAssignSubmit() {
     }
 
     if (task && task.version == null) {
-      ElMessage.error(`任务 ${task.taskNo || task.id} 缺少乐观锁 version，请刷新后重试`)
+      ElMessage.error(`任务 ${task.displayTaskNo || task.taskNo || task.id} 缺少乐观锁 version，请刷新后重试`)
       return
     }
     // 当前行有任务但详情里查不到该任务 → 数据异常
