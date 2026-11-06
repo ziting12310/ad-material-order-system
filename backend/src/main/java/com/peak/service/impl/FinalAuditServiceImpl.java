@@ -601,11 +601,15 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                 .distinct()
                 .toList();
         Map<Long, String> orderNoMap = new HashMap<>();
+        Map<Long, String> customerNameMap = new HashMap<>();
         if (!orderIds.isEmpty()) {
-            orderMapper.selectBatchIds(orderIds).forEach(o -> orderNoMap.put(o.getId(), o.getOrderNo()));
+            orderMapper.selectBatchIds(orderIds).forEach(o -> {
+                orderNoMap.put(o.getId(), o.getOrderNo());
+                customerNameMap.put(o.getId(), o.getCustomerName());
+            });
         }
 
-        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap)).toList();
+        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap, customerNameMap)).toList();
     }
 
     // ========================================================================
@@ -662,11 +666,15 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                 .distinct()
                 .toList();
         Map<Long, String> orderNoMap = new HashMap<>();
+        Map<Long, String> customerNameMap = new HashMap<>();
         if (!orderIds.isEmpty()) {
-            orderMapper.selectBatchIds(orderIds).forEach(o -> orderNoMap.put(o.getId(), o.getOrderNo()));
+            orderMapper.selectBatchIds(orderIds).forEach(o -> {
+                orderNoMap.put(o.getId(), o.getOrderNo());
+                customerNameMap.put(o.getId(), o.getCustomerName());
+            });
         }
 
-        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap)).toList();
+        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap, customerNameMap)).toList();
     }
 
     // ========================================================================
@@ -675,13 +683,15 @@ public class FinalAuditServiceImpl implements FinalAuditService {
 
     private OperationLogVO buildLogVO(OrderOperationLog log,
                                        Map<Long, String> taskNoMap,
-                                       Map<Long, String> orderNoMap) {
+                                       Map<Long, String> orderNoMap,
+                                       Map<Long, String> customerNameMap) {
         OperationLogVO vo = new OperationLogVO();
         vo.setId(log.getId());
         vo.setTaskId(log.getTaskId());
         vo.setTaskNo(taskNoMap.get(log.getTaskId()));
         vo.setOrderId(log.getOrderId());
         vo.setOrderNo(orderNoMap.get(log.getOrderId()));
+        vo.setCustomerName(customerNameMap.get(log.getOrderId()));
         vo.setOperationType(log.getOperationType());
         OperationType ot = OperationType.of(log.getOperationType());
         vo.setOperationTypeName(ot != null ? ot.getLabel() : "其他");

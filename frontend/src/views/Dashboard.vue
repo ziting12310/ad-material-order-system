@@ -193,8 +193,8 @@
                 <span v-if="item.operatorName" class="log-operator">
                   操作人：{{ item.operatorName }}
                 </span>
-                <span v-if="item.taskNo" class="log-task">
-                  任务：{{ item.taskNo }}
+                <span v-if="item.customerName" class="log-task">
+                  客户：{{ item.customerName }}
                 </span>
               </div>
             </div>
