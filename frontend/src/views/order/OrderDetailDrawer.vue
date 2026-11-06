@@ -187,7 +187,7 @@
 
           <div class="feedback-list">
             <div
-              v-for="(item, index) in detail.feedbacks || []"
+              v-for="(item, index) in allFeedbacks"
               :key="item.id || index"
               class="feedback-item"
             >
@@ -346,6 +346,10 @@ const visible = computed({
 const loading = ref(false)
 const activeTab = ref('basic')
 const detail = ref({})
+
+// 修改意见：显式 computed，确保所有 feedback（PENDING/PROCESSED/其他状态）全量展示，
+// 不受任何隐式过滤影响
+const allFeedbacks = computed(() => detail.value.feedbacks || [])
 
 // ---------- 角色/权限判断 ----------
 const canSubmitFeedback = computed(() => {

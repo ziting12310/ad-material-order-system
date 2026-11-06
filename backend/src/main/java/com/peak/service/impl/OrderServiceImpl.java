@@ -271,6 +271,10 @@ public class OrderServiceImpl implements OrderService {
                         .eq(OrderFeedback::getOrderId, orderId)
                         .orderByAsc(OrderFeedback::getSubmittedAt)
         );
+        log.info("[OrderDetail] orderId={} feedbacks total={} status={}",
+                orderId, feedbacks.size(),
+                feedbacks.stream().collect(java.util.stream.Collectors.groupingBy(OrderFeedback::getStatus,
+                        java.util.stream.Collectors.counting())));
 
         Map<Long, String> allUserNames = batchLoadUserNames(
                 Stream.concat(

@@ -610,7 +610,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
                     "设计版本已被他人修改，请刷新后重试");
         }
 
-        // 处理所有 PENDING Feedback
+        // 处理所有 PENDING Feedback（定稿即视为全部意见已处理）
         LocalDateTime now = LocalDateTime.now();
         orderFeedbackMapper.update(null,
                 new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<OrderFeedback>()
@@ -619,6 +619,20 @@ public class OrderTaskServiceImpl implements OrderTaskService {
                         .set(OrderFeedback::getStatus, FeedbackStatus.PROCESSED.getCode())
                         .set(OrderFeedback::getProcessedAt, now)
         );
+
+        // 自动创建定稿意见 Feedback（AM 确认定稿时填写的 remark，与 rejectTask 自动写修改意见同口径）
+        if (remark != null && !remark.isBlank()) {
+            OrderFeedback fb = new OrderFeedback();
+            fb.setOrderId(task.getOrderId());
+            fb.setTaskId(taskId);
+            fb.setVersionId(latest.getId());
+            fb.setContent(StringEscapeUtils.escapeHtml4(remark));
+            fb.setStatus(FeedbackStatus.PROCESSED.getCode());  // 定稿意见：立即生效，无 PENDING 状态
+            fb.setSubmittedBy(operatorId);
+            fb.setSubmittedAt(now);
+            fb.setProcessedAt(now);
+            orderFeedbackMapper.insert(fb);
+        }
 
         task.setStatus(OrderStatus.APPROVED.getCode());
         task.setApprovedBy(operatorId);
