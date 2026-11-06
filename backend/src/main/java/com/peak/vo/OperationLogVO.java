@@ -23,6 +23,9 @@ public class OperationLogVO {
     @Schema(description = "订单编号", example = "ORD-2024-001")
     private String orderNo;
 
+    @Schema(description = "公司名称（订单客户）", example = "汉唐科技")
+    private String customerName;
+
     @Schema(description = "操作类型", example = "TASK_APPROVE")
     private String operationType;
 
