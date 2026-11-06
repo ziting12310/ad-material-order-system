@@ -81,10 +81,12 @@ public class OrderController {
             @Parameter(description = "创建人ID过滤") @RequestParam(required = false) Long creatorId,
             @Parameter(description = "交付日期起（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateFrom,
             @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateTo,
+            @Parameter(description = "物料截止时间起（YYYY-MM-DD）") @RequestParam(required = false) String taskDeadlineFrom,
+            @Parameter(description = "物料截止时间止（YYYY-MM-DD）") @RequestParam(required = false) String taskDeadlineTo,
             HttpServletRequest request) {
         Long userId = UserContext.getUserId();
         String role = UserContext.getRole();
-        return ResultVO.success(orderService.listOrders(userId, role, cursor, limit, materialType, status, keyword, designerId, creatorId, deliveryDateFrom, deliveryDateTo));
+        return ResultVO.success(orderService.listOrders(userId, role, cursor, limit, materialType, status, keyword, designerId, creatorId, deliveryDateFrom, deliveryDateTo, taskDeadlineFrom, taskDeadlineTo));
     }
 
     /**
@@ -104,11 +106,13 @@ public class OrderController {
             @Parameter(description = "设计人员ID过滤") @RequestParam(required = false) Long designerId,
             @Parameter(description = "创建人ID过滤") @RequestParam(required = false) Long creatorId,
             @Parameter(description = "交付日期起（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateFrom,
-            @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateTo) {
+            @Parameter(description = "交付日期止（YYYY-MM-DD）") @RequestParam(required = false) String deliveryDateTo,
+            @Parameter(description = "物料截止时间起（YYYY-MM-DD）") @RequestParam(required = false) String taskDeadlineFrom,
+            @Parameter(description = "物料截止时间止（YYYY-MM-DD）") @RequestParam(required = false) String taskDeadlineTo) {
         Long userId = UserContext.getUserId();
         String role = UserContext.getRole();
         return ResultVO.success(orderService.pageOrders(userId, role, pageNum, pageSize,
-                materialType, status, keyword, designerId, creatorId, deliveryDateFrom, deliveryDateTo));
+                materialType, status, keyword, designerId, creatorId, deliveryDateFrom, deliveryDateTo, taskDeadlineFrom, taskDeadlineTo));
     }
 
     /**

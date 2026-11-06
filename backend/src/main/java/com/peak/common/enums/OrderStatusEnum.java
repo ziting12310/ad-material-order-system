@@ -55,7 +55,7 @@ public enum OrderStatusEnum {
      * 白名单是「关闭集合」：不在此表且不在新 4 态的值均视为脏数据，由工具类拦截。</p>
      */
     private static final Set<String> LEGACY_ONLY_CODES = Set.of(
-            "WAIT_CREATE", "DESIGNING", "WAIT_APPROVE", "APPROVED", "DELIVERED", "CANCELLED");
+            "WAIT_CREATE", "CONFIRMED", "DESIGNING", "WAIT_APPROVE", "APPROVED", "DELIVERED", "CANCELLED");
 
     /** DB 存储值（code） */
     private final String code;

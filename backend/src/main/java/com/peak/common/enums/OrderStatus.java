@@ -14,6 +14,7 @@ import lombok.Getter;
 public enum OrderStatus {
     WAIT_CREATE("WAIT_CREATE", "待登记"),
     CREATED("CREATED", "已登记（待分派）"),
+    CONFIRMED("CONFIRMED", "已确认物料（待分派）"),
     ASSIGNED("ASSIGNED", "已分派"),
     DESIGNING("DESIGNING", "设计中"),
     WAIT_APPROVE("WAIT_APPROVE", "待审核"),

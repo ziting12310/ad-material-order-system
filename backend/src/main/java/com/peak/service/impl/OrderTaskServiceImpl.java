@@ -165,6 +165,12 @@ public class OrderTaskServiceImpl implements OrderTaskService {
     public OrderTaskVO addTask(Long orderId, TaskCreateItem item, Long operatorId) {
         Order order = findOrderOrThrow(orderId);
 
+        // 确认物料清单后不能再新增物料任务（课程规则①）
+        if (!OrderStatus.CREATED.getCode().equals(order.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
+                    "订单已确认物料清单，不能新增物料任务");
+        }
+
         // 权限：BL 或订单创建人（AM）
         String role = getUserRole(operatorId);
         if (!UserRole.BL.getCode().equals(role)
@@ -216,11 +222,15 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         OrderTask task = findTaskOrThrow(taskId);
         Order order = findOrderOrThrow(task.getOrderId());
 
-        // 状态校验：仅 CREATED 可编辑
+        // 状态校验：仅未确认（CREATED）订单下的任务可编辑
         if (!OrderStatus.CREATED.getCode().equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
                     "当前任务状态为 [%s]，仅已登记状态可修改",
                     OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
+        }
+        if (!OrderStatus.CREATED.getCode().equals(order.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
+                    "订单已确认物料清单，不能直接修改物料任务（应通过确认清单整体替换）");
         }
 
         // 权限：BL 或订单创建人
@@ -300,6 +310,10 @@ public class OrderTaskServiceImpl implements OrderTaskService {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
                     "当前任务状态为 [%s]，仅已登记状态可删除",
                     OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
+        }
+        if (!OrderStatus.CREATED.getCode().equals(order.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
+                    "订单已确认物料清单，不能删除物料任务");
         }
 
         String role = getUserRole(operatorId);

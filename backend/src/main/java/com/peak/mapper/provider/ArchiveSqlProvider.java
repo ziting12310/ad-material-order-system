@@ -90,6 +90,17 @@ public class ArchiveSqlProvider {
         if (params.get("deliveredDateTo") != null) {
             sql.append("AND o.delivery_date <= #{deliveredDateTo} ");
         }
+        // 物料截止时间：EXISTS 子查询，订单下任一未作废物料任务命中范围即可
+        if (params.get("taskDeadlineFrom") != null) {
+            sql.append("AND EXISTS (SELECT 1 FROM order_tasks td WHERE td.order_id = o.id ")
+                    .append("AND td.is_deleted = 0 AND td.status <> 'CANCELLED' ")
+                    .append("AND td.deadline >= #{taskDeadlineFrom}) ");
+        }
+        if (params.get("taskDeadlineTo") != null) {
+            sql.append("AND EXISTS (SELECT 1 FROM order_tasks td WHERE td.order_id = o.id ")
+                    .append("AND td.is_deleted = 0 AND td.status <> 'CANCELLED' ")
+                    .append("AND td.deadline <= #{taskDeadlineTo}) ");
+        }
         // 注意：MyBatis 的 ParamMap 对不存在的 key 会抛 BindingException，
         // count 语句不传 lastId，必须先 containsKey 判断。
         Object lastId = params.containsKey("lastId") ? params.get("lastId") : null;

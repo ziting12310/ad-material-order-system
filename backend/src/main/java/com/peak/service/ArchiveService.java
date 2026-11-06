@@ -6,13 +6,6 @@ import com.peak.vo.OrderListItemVO;
 
 /**
  * 归档服务接口 — C 模块（归档域）
- *
- * <p>提供归档视角的查询能力：
- *  - 已归档订单列表
- *  - 归档订单详情（只读）
- *  - 归档订单搜索
- *
- * <p>归档动作由 OrderService.markDelivered 触发（交付即归档）。
  */
 public interface ArchiveService {
 
@@ -20,13 +13,15 @@ public interface ArchiveService {
     CursorPage<OrderListItemVO> listArchivedOrders(Long userId, String userRole,
                                                     String cursor, int limit,
                                                     String materialType, String keyword,
-                                                    String deliveredDateFrom, String deliveredDateTo);
+                                                    String deliveredDateFrom, String deliveredDateTo,
+                                                    String taskDeadlineFrom, String taskDeadlineTo);
 
-    /** 归档订单详情（只读，和订单详情一致但明确标记已归档） */
+    /** 归档订单详情（只读） */
     OrderDetailVO getArchivedOrderDetail(Long orderId, Long userId, String userRole);
 
-    /** 归档订单数量统计 — 与 listArchivedOrders 完全相同的筛选逻辑（共用同一套 query 条件） */
+    /** 归档订单数量统计 — 与 listArchivedOrders 完全相同的筛选逻辑 */
     long countArchived(Long userId, String userRole,
                        String materialType, String keyword,
-                       String deliveredDateFrom, String deliveredDateTo);
+                       String deliveredDateFrom, String deliveredDateTo,
+                       String taskDeadlineFrom, String taskDeadlineTo);
 }

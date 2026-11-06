@@ -143,7 +143,8 @@ public class OrderServiceImpl implements OrderService {
                                                    String cursor, int limit,
                                                    String materialType, String status, String keyword,
                                                    Long designerId, Long creatorId,
-                                                   String deliveryDateFrom, String deliveryDateTo) {
+                                                   String deliveryDateFrom, String deliveryDateTo,
+                                                   String taskDeadlineFrom, String taskDeadlineTo) {
         long lastId = decodeCursor(cursor);
         int effectiveLimit = Math.min(Math.max(limit, 1), 100);
         boolean firstPage = cursor == null || cursor.isBlank();
@@ -159,7 +160,7 @@ public class OrderServiceImpl implements OrderService {
         // 数据范围 + 可选过滤条件
         applyDataScopeFilter(wrapper, userId, userRole);
         applyOrderFilters(wrapper, materialType, status, keyword, designerId, creatorId,
-                deliveryDateFrom, deliveryDateTo);
+                deliveryDateFrom, deliveryDateTo, taskDeadlineFrom, taskDeadlineTo);
 
         // 首页返回准确总数（后续页不再重复统计）
         Long total = null;
@@ -167,7 +168,7 @@ public class OrderServiceImpl implements OrderService {
             LambdaQueryWrapper<Order> countWrapper = new LambdaQueryWrapper<>();
             applyDataScopeFilter(countWrapper, userId, userRole);
             applyOrderFilters(countWrapper, materialType, status, keyword, designerId, creatorId,
-                    deliveryDateFrom, deliveryDateTo);
+                    deliveryDateFrom, deliveryDateTo, taskDeadlineFrom, taskDeadlineTo);
             total = orderMapper.selectCount(countWrapper);
         }
 
@@ -189,7 +190,8 @@ public class OrderServiceImpl implements OrderService {
                                                   int pageNum, int pageSize,
                                                   String materialType, String status, String keyword,
                                                   Long designerId, Long creatorId,
-                                                  String deliveryDateFrom, String deliveryDateTo) {
+                                                  String deliveryDateFrom, String deliveryDateTo,
+                                                  String taskDeadlineFrom, String taskDeadlineTo) {
         int effectivePageNum = Math.max(pageNum, 1);
         int effectivePageSize = Math.min(Math.max(pageSize, 1), 100);
 
@@ -197,7 +199,7 @@ public class OrderServiceImpl implements OrderService {
         LambdaQueryWrapper<Order> countWrapper = new LambdaQueryWrapper<>();
         applyDataScopeFilter(countWrapper, userId, userRole);
         applyOrderFilters(countWrapper, materialType, status, keyword, designerId, creatorId,
-                deliveryDateFrom, deliveryDateTo);
+                deliveryDateFrom, deliveryDateTo, taskDeadlineFrom, taskDeadlineTo);
         long total = orderMapper.selectCount(countWrapper);
         long pages = total == 0 ? 0 : (total + effectivePageSize - 1) / effectivePageSize;
 
@@ -205,7 +207,7 @@ public class OrderServiceImpl implements OrderService {
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
         applyDataScopeFilter(wrapper, userId, userRole);
         applyOrderFilters(wrapper, materialType, status, keyword, designerId, creatorId,
-                deliveryDateFrom, deliveryDateTo);
+                deliveryDateFrom, deliveryDateTo, taskDeadlineFrom, taskDeadlineTo);
         wrapper.orderByDesc(Order::getId);
         long offset = (long) (effectivePageNum - 1) * effectivePageSize;
         wrapper.last("LIMIT " + offset + ", " + effectivePageSize);
@@ -887,8 +889,8 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderMapper.selectById(orderId);
         if (order == null) return;
 
-        // 终态不回退
-        if (OrderStatus.DELIVERED.getCode().equals(order.getStatus())
+        // 终态不回退（已定稿 / 已作废 不再被任务状态联动改写）
+        if (OrderStatus.APPROVED.getCode().equals(order.getStatus())
                 || OrderStatus.CANCELLED.getCode().equals(order.getStatus())) {
             return;
         }
@@ -898,7 +900,7 @@ public class OrderServiceImpl implements OrderService {
         );
         if (tasks.isEmpty()) return;
 
-        String aggregated = aggregateStatus(tasks);
+        String aggregated = aggregateStatus(order.getStatus(), tasks);
         if (!aggregated.equals(order.getStatus())) {
             order.setStatus(aggregated);
             int rows = orderMapper.updateById(order);
@@ -911,17 +913,18 @@ public class OrderServiceImpl implements OrderService {
 
     /**
      * 状态聚合规则（取"最远进展"）：
-     *  全部 APPROVED → APPROVED
+     *  全部有效任务 APPROVED → APPROVED（课程规则⑦：订单完成）
      *  任意 WAIT_APPROVE → WAIT_APPROVE
-     *  任意 REJECTED（待设计师重新开始）→ DESIGNING
+     *  任意 REJECTED → DESIGNING
      *  任意 DESIGNING → DESIGNING
      *  任意 ASSIGNED → ASSIGNED
-     *  全部 CREATED → CREATED
+     *  全部 CREATED：
+     *    - 若订单当前是 CONFIRMED → 保持 CONFIRMED（不回退）
+     *    - 否则 → CREATED
      *  （CANCELLED 任务忽略，不影响聚合）
      */
-    private String aggregateStatus(List<OrderTask> tasks) {
+    private String aggregateStatus(String currentOrderStatus, List<OrderTask> tasks) {
         boolean allCompleted = true;
-        boolean allDelivered = true;
         boolean hasWaitApprove = false;
         boolean hasDesigning = false;
         boolean hasAssigned = false;
@@ -929,46 +932,26 @@ public class OrderServiceImpl implements OrderService {
 
         for (OrderTask task : tasks) {
             String s = task.getStatus();
-            if (OrderStatus.CANCELLED.getCode().equals(s)) {
-                continue;
-            }
+            if (OrderStatus.CANCELLED.getCode().equals(s)) continue;
             hasActive = true;
 
-            if (OrderStatus.DELIVERED.getCode().equals(s)) {
-                // DELIVERED 也是已完成状态，参与聚合
-            } else if (OrderStatus.APPROVED.getCode().equals(s)) {
-                allDelivered = false;
-            } else if (OrderStatus.WAIT_APPROVE.getCode().equals(s)) {
-                hasWaitApprove = true;
+            if (!OrderStatus.APPROVED.getCode().equals(s)) {
                 allCompleted = false;
-                allDelivered = false;
-            } else if (OrderStatus.REJECTED.getCode().equals(s)) {
-                // 已驳回：等待设计师重新开始设计，订单侧按设计中聚合
-                hasDesigning = true;
-                allCompleted = false;
-                allDelivered = false;
-            } else if (OrderStatus.DESIGNING.getCode().equals(s)) {
-                hasDesigning = true;
-                allCompleted = false;
-                allDelivered = false;
-            } else if (OrderStatus.ASSIGNED.getCode().equals(s)) {
-                hasAssigned = true;
-                allCompleted = false;
-                allDelivered = false;
-            } else {
-                allCompleted = false;
-                allDelivered = false;
+                if (OrderStatus.WAIT_APPROVE.getCode().equals(s)) hasWaitApprove = true;
+                else if (OrderStatus.REJECTED.getCode().equals(s) || OrderStatus.DESIGNING.getCode().equals(s)) hasDesigning = true;
+                else if (OrderStatus.ASSIGNED.getCode().equals(s)) hasAssigned = true;
             }
+            // APPROVED：不改变任何 flag，allCompleted 保持 true
         }
 
         if (!hasActive) return OrderStatus.CANCELLED.getCode();
-        if (allCompleted) {
-            return allDelivered ? OrderStatus.DELIVERED.getCode() : OrderStatus.APPROVED.getCode();
-        }
+        if (allCompleted) return OrderStatus.APPROVED.getCode();
         if (hasWaitApprove) return OrderStatus.WAIT_APPROVE.getCode();
         if (hasDesigning) return OrderStatus.DESIGNING.getCode();
         if (hasAssigned) return OrderStatus.ASSIGNED.getCode();
-        return OrderStatus.CREATED.getCode();
+        // 全部 CREATED（未分派）：保留订单当前确认态
+        return OrderStatus.CONFIRMED.getCode().equals(currentOrderStatus)
+                ? currentOrderStatus : OrderStatus.CREATED.getCode();
     }
 
     // ========================================================================
@@ -983,23 +966,60 @@ public class OrderServiceImpl implements OrderService {
         checkNotArchived(order);
         checkVersion(order, dto.getVersion());
 
-        // 用新的任务列表替换原有任务（仅 CREATED 状态任务可替换）
-        // 先删除旧任务
+        // 旧任务逐条记变更记录后标记作废（物理保留）
         List<OrderTask> oldTasks = orderTaskMapper.selectList(
                 new LambdaQueryWrapper<OrderTask>().eq(OrderTask::getOrderId, orderId)
         );
         for (OrderTask t : oldTasks) {
+            String snapshot = String.format("物料:%s;数量:%d;规格:%s;截止:%s",
+                    t.getMaterialType(), t.getQuantity(),
+                    defaultStr(t.getSpecification()), t.getDeadline());
+            opLog.logTask(orderId, t.getId(), OperationType.TASK_REMOVE,
+                    "确认清单前移除物料任务：" + t.getTaskNo(),
+                    operatorId, snapshot, null);
             orderTaskMapper.deleteById(t.getId());
         }
 
-        // 批量创建新任务
+        // 批量创建新任务，逐条记 TASK_ADD 日志（batchCreateTasks 本身不记日志）
         orderTaskService.batchCreateTasks(orderId, dto.getTasks(), operatorId);
+        List<OrderTask> newTasks = orderTaskMapper.selectList(
+                new LambdaQueryWrapper<OrderTask>()
+                        .eq(OrderTask::getOrderId, orderId)
+                        .eq(OrderTask::getStatus, OrderStatus.CREATED.getCode())
+                        .orderByAsc(OrderTask::getSortOrder)
+        );
+        int i = 0;
+        for (OrderTask t : newTasks) {
+            TaskCreateItem item = dto.getTasks().get(i++);
+            String snapshot = String.format("物料:%s;数量:%d;规格:%s;截止:%s",
+                    t.getMaterialType(), t.getQuantity(),
+                    defaultStr(t.getSpecification()), t.getDeadline());
+            opLog.logTask(orderId, t.getId(), OperationType.TASK_ADD,
+                    "确认清单新增物料任务：" + t.getTaskNo()
+                            + "（" + materialLabel(item.getMaterialType()) + "）",
+                    operatorId, null, snapshot);
+        }
+
+        // 订单状态推进为已确认（CONFIRMED），确认后物料清单锁死，后续修改只能走"变更物料"
+        order.setStatus(OrderStatus.CONFIRMED.getCode());
+        int rows = orderMapper.updateById(order);
+        if (rows == 0) {
+            throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
+                    "订单已被他人修改，请刷新后重试");
+        }
 
         opLog.logOrder(orderId, OperationType.ORDER_CONFIRM,
-                "确认物料清单（共 " + dto.getTasks().size() + " 项任务）",
+                "确认物料清单（旧 " + oldTasks.size() + " → 新 " + dto.getTasks().size() + " 项）",
                 operatorId, null, null);
+    }
 
-        // 确认后状态保持 CREATED，但有操作日志记录确认动作
+    private String defaultStr(String s) {
+        return s == null ? "" : s;
+    }
+
+    private String materialLabel(String code) {
+        MaterialType t = MaterialType.of(code);
+        return t != null ? t.getLabel() : (code == null ? "" : code);
     }
 
     // ========================================================================
@@ -1134,7 +1154,8 @@ public class OrderServiceImpl implements OrderService {
     private void applyOrderFilters(LambdaQueryWrapper<Order> wrapper,
                                    String materialType, String status, String keyword,
                                    Long designerId, Long creatorId,
-                                   String deliveryDateFrom, String deliveryDateTo) {
+                                   String deliveryDateFrom, String deliveryDateTo,
+                                   String taskDeadlineFrom, String taskDeadlineTo) {
         if (materialType != null && !materialType.isBlank()) {
             wrapper.eq(Order::getMaterialType, materialType);
         }
@@ -1157,6 +1178,15 @@ public class OrderServiceImpl implements OrderService {
         }
         if (deliveryDateTo != null && !deliveryDateTo.isBlank()) {
             wrapper.le(Order::getDeliveryDate, java.time.LocalDate.parse(deliveryDateTo));
+        }
+        // 物料截止时间：EXISTS 子查询命中 order_tasks.deadline 范围内有任一任务即可
+        if (taskDeadlineFrom != null && !taskDeadlineFrom.isBlank()) {
+            wrapper.apply("EXISTS (SELECT 1 FROM order_tasks t WHERE t.order_id = orders.id AND t.is_deleted = 0 AND t.deadline >= {0})",
+                    java.time.LocalDate.parse(taskDeadlineFrom));
+        }
+        if (taskDeadlineTo != null && !taskDeadlineTo.isBlank()) {
+            wrapper.apply("EXISTS (SELECT 1 FROM order_tasks t WHERE t.order_id = orders.id AND t.is_deleted = 0 AND t.deadline <= {0})",
+                    java.time.LocalDate.parse(taskDeadlineTo));
         }
     }
 

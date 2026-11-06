@@ -29,6 +29,8 @@ public interface OrderMapper extends BaseMapper<Order> {
                                             @Param("keyword") String keyword,
                                             @Param("deliveredDateFrom") LocalDate deliveredDateFrom,
                                             @Param("deliveredDateTo") LocalDate deliveredDateTo,
+                                            @Param("taskDeadlineFrom") LocalDate taskDeadlineFrom,
+                                            @Param("taskDeadlineTo") LocalDate taskDeadlineTo,
                                             @Param("lastId") Long lastId,
                                             @Param("limit") Integer limit);
 
@@ -39,5 +41,7 @@ public interface OrderMapper extends BaseMapper<Order> {
                             @Param("materialType") String materialType,
                             @Param("keyword") String keyword,
                             @Param("deliveredDateFrom") LocalDate deliveredDateFrom,
-                            @Param("deliveredDateTo") LocalDate deliveredDateTo);
+                            @Param("deliveredDateTo") LocalDate deliveredDateTo,
+                            @Param("taskDeadlineFrom") LocalDate taskDeadlineFrom,
+                            @Param("taskDeadlineTo") LocalDate taskDeadlineTo);
 }

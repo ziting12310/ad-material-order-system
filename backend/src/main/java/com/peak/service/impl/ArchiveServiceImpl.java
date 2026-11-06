@@ -40,20 +40,21 @@ public class ArchiveServiceImpl implements ArchiveService {
     public CursorPage<OrderListItemVO> listArchivedOrders(Long userId, String userRole,
                                                            String cursor, int limit,
                                                            String materialType, String keyword,
-                                                           String deliveredDateFrom, String deliveredDateTo) {
+                                                           String deliveredDateFrom, String deliveredDateTo,
+                                                           String taskDeadlineFrom, String taskDeadlineTo) {
         long lastId = decodeCursor(cursor);
         int effectiveLimit = Math.min(Math.max(limit, 1), 100);
 
-        // 订单表 LEFT JOIN 物料表，按订单分组统计；不在 WHERE 中过滤物料状态，
-        // 保证无物料 / 部分定稿 / 全部定稿的订单都能返回。
         LocalDate from = parseDate(deliveredDateFrom);
         LocalDate to = parseDate(deliveredDateTo);
+        LocalDate dlFrom = parseDate(taskDeadlineFrom);
+        LocalDate dlTo = parseDate(taskDeadlineTo);
 
         List<OrderListItemVO> all = orderMapper.selectArchivePage(
                 userId, userRole,
                 isBlank(materialType) ? null : materialType,
                 isBlank(keyword) ? null : keyword,
-                from, to,
+                from, to, dlFrom, dlTo,
                 lastId,
                 effectiveLimit + 1);
 
@@ -91,13 +92,15 @@ public class ArchiveServiceImpl implements ArchiveService {
     @Override
     public long countArchived(Long userId, String userRole,
                               String materialType, String keyword,
-                              String deliveredDateFrom, String deliveredDateTo) {
+                              String deliveredDateFrom, String deliveredDateTo,
+                              String taskDeadlineFrom, String taskDeadlineTo) {
         // 与列表相同的 LEFT JOIN + 分组聚合口径，仅统计「已归档」订单
         return orderMapper.selectArchiveCount(
                 userId, userRole,
                 isBlank(materialType) ? null : materialType,
                 isBlank(keyword) ? null : keyword,
-                parseDate(deliveredDateFrom), parseDate(deliveredDateTo));
+                parseDate(deliveredDateFrom), parseDate(deliveredDateTo),
+                parseDate(taskDeadlineFrom), parseDate(taskDeadlineTo));
     }
 
     private String encodeCursor(long lastId) {
