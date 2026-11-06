@@ -88,6 +88,7 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled, Document, CircleCheckFilled } from '@element-plus/icons-vue'
+import { presignFile, uploadFileMultipart } from '@/api/order'
 
 // ---------- Props / Emits ----------
 const props = defineProps({
@@ -281,31 +282,48 @@ function handleFiles(files) {
   })
 }
 
-// ---------- 上传逻辑（模拟，等后端 OSS 配置好再替换） ----------
+// ---------- 真实上传链路：presign → multipart upload → 同步 DB ----------
 async function uploadFile(fileItem) {
+  const raw = fileItem.raw
+  const fileName = fileItem.name
+  const ext = getFileExt(fileName)
+
   try {
-    // TODO: 等后端配置好 OSS 后，替换为真实上传流程：
-    // 1. 调 presign 接口拿上传凭证
-    // 2. 前端直传 OSS，监听进度
-    // 3. 上传成功后通知后端，拿到 fileId
+    // 步骤 1：调后端 presign 接口拿 fileId + uploadUrl
+    fileItem.percent = 5
+    const presign = await presignFile({
+      fileType: props.scene || 'design',
+      fileName,
+      fileSize: raw.size,
+      contentType: raw.type || `application/${ext || 'octet-stream'}`
+    })
+    fileItem.percent = 15
 
-    // 模拟上传进度
-    await simulateUpload(fileItem)
-
-    // 模拟上传成功，生成 mock 返回值
-    const mockResult = {
-      fileId: 'file_' + generateUid(),
-      fileUrl: URL.createObjectURL(fileItem.raw), // 临时预览 URL
-      fileName: fileItem.name,
-      fileSize: fileItem.size
+    if (!presign?.fileId) {
+      throw new Error('presign 返回缺少 fileId')
     }
 
-    // 更新文件状态
+    // 步骤 2：把文件真实落盘到后端 uploads/ 目录（multipart/form-data）
+    const uploadResp = await uploadFileMultipart(presign.fileId, raw)
+    fileItem.percent = 90
+
+    // 步骤 3：构建成功结果（fileId/fileUrl 全部来自后端真实返回）
+    const finalFileId = uploadResp?.fileId || presign.fileId
+    const finalFileUrl = uploadResp?.accessUrl || presign.accessUrl || `/api/v1/files/${finalFileId}`
+
+    const successResult = {
+      fileId: finalFileId,
+      fileUrl: finalFileUrl,
+      fileName,
+      fileSize: raw.size
+    }
+
+    // 更新内部文件状态为 success
     const idx = fileList.value.findIndex(f => f.uid === fileItem.uid)
     if (idx > -1) {
       fileList.value[idx] = {
         ...fileList.value[idx],
-        ...mockResult,
+        ...successResult,
         status: 'success',
         percent: 100
       }
@@ -313,44 +331,23 @@ async function uploadFile(fileItem) {
 
     // 同步 v-model（只传成功的文件）
     syncModelValue()
-    emit('success', mockResult)
+    emit('success', successResult)
     emit('change', fileList.value)
   } catch (e) {
+    console.error('[FileUpload] 上传失败', fileName, e)
     const idx = fileList.value.findIndex(f => f.uid === fileItem.uid)
     if (idx > -1) {
       fileList.value[idx].status = 'error'
-      fileList.value[idx].errorMsg = e.message || '上传失败'
+      fileList.value[idx].errorMsg = e?.message || '上传失败，请重试'
     }
     emit('error', { file: fileItem, error: e })
     emit('change', fileList.value)
   }
 }
 
-// 模拟上传进度（真实场景替换为 OSS 直传）
-function simulateUpload(fileItem) {
-  return new Promise((resolve, reject) => {
-    let percent = 0
-    const totalDuration = 1500 + Math.random() * 1500 // 1.5~3 秒
-    const steps = 30
-    const stepDuration = totalDuration / steps
-
-    const timer = setInterval(() => {
-      if (fileItem.status === 'error' || fileItem.status === 'aborted') {
-        clearInterval(timer)
-        reject(new Error('已取消'))
-        return
-      }
-      percent += 100 / steps
-      if (percent >= 100) {
-        percent = 100
-        clearInterval(timer)
-        fileItem.percent = 100
-        setTimeout(resolve, 100)
-      } else {
-        fileItem.percent = Math.floor(percent)
-      }
-    }, stepDuration)
-  })
+// 取消上传标记（被 handleAbort 调用；后端无断点续传，仅前端标记）
+function abortUpload(fileItem) {
+  fileItem.status = 'aborted'
 }
 
 // ---------- 操作 ----------

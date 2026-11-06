@@ -316,12 +316,15 @@ VALUES
    2, 0, '2026-03-04 10:00:00', '2026-03-04 10:10:00', 0);
 
 -- ---- 1 条设计稿版本：任务 T-001 的 V1，由 DS 李明上传 ----
+-- file_id / file_url 格式与 FileServiceImpl.presign / resolveAccessUrl 产出一致：
+-- UUID 去横线 + 小写扩展名；file_url = {context-path}/v1/files/{file_id}
+-- 物理文件放在 ./uploads/{file_id}，对应 FileServiceImpl.storage-dir
 INSERT INTO `design_versions`
   (`id`, `order_id`, `task_id`, `version_no`, `file_id`, `file_url`,
    `file_name`, `file_size`, `file_type`, `version_note`, `is_final`,
    `uploaded_by`, `uploaded_at`, `version`, `created_at`, `updated_at`, `is_deleted`)
 VALUES
-  (1, 1, 1, 'V1', 'file_demo_poster_v1', '/api/v1/files/file_demo_poster_v1',
+  (1, 1, 1, 'V1', 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6.png', '/api/v1/files/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6.png',
    'poster_v1.png', 1048576, 'png', '首版设计稿，主视觉 + 文案排版', 0,
    5, '2026-03-04 11:00:00', 0, '2026-03-04 11:00:00', '2026-03-04 11:00:00', 0);
 

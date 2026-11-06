@@ -206,7 +206,7 @@
             >
               <el-table-column label="任务编号" width="130">
                 <template #default="{ row }">
-                  <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
+                  <span class="mono-text">{{ row.displayTaskNo || row.taskNo || row.id || '—' }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="物料" width="100">
@@ -391,6 +391,7 @@ import { ElMessage } from 'element-plus'
 import { Search, RefreshLeft, Document } from '@element-plus/icons-vue'
 import { listArchivedOrders, getArchivedOrder } from '@/api/audit'
 import { useClientPagination } from '@/composables/useClientPagination'
+import { applyDisplayTaskNo } from '@/composables/useDisplayTaskNo'
 import ClientPagination from '@/components/common/ClientPagination.vue'
 import {
   MATERIAL_OPTIONS,
@@ -556,6 +557,11 @@ async function handleDrawerOpen() {
     // 用行数据兜底
     detail.value = { ...row }
   } finally {
+    // 给物料任务追加 displayTaskNo（公司名_NNN）
+    const order = detail.value
+    if (order?.tasks?.length && order.customerName) {
+      applyDisplayTaskNo(order.tasks)
+    }
     detailDrawer.loading = false
   }
 }

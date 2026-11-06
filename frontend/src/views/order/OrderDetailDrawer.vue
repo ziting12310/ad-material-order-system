@@ -86,7 +86,7 @@
                 <span class="mono-text">{{ detail.orderNo || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="物料" width="100">
+            <el-table-column label="物料" width="120">
               <template #default="{ row }">
                 {{ getMaterialLabel(row.materialType) }}
               </template>
@@ -138,7 +138,7 @@
           >
             <el-table-column label="版本号" width="100">
               <template #default="{ row }">
-                <span class="version-tag">V{{ row.version || row.versionNo || '1' }}</span>
+                <span class="version-tag">V{{ row.versionNo || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column label="上传人" width="100">
@@ -151,7 +151,7 @@
                 {{ formatDateTime(row.uploadedAt || row.createdAt) }}
               </template>
             </el-table-column>
-            <el-table-column label="版本说明" min-width="200">
+            <el-table-column label="版本说明" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.versionNote || '—' }}
               </template>
@@ -280,7 +280,7 @@
             <el-option
               v-for="t in detail.tasks || []"
               :key="t.id"
-              :label="(t.taskNo || t.id) + ' - ' + getMaterialLabel(t.materialType)"
+              :label="(t.displayTaskNo || t.taskNo || t.id) + ' - ' + getMaterialLabel(t.materialType)"
               :value="t.id"
             />
           </el-select>
@@ -303,6 +303,69 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 文件预览弹窗 -->
+    <el-dialog
+      v-model="previewVisible"
+      width="780px"
+      :title="'文件预览 — ' + previewFileName"
+      :close-on-click-modal="true"
+      append-to-body
+    >
+      <div class="preview-meta">
+        <span class="preview-ext">{{ previewFileExt.toUpperCase() }}</span>
+        <span class="preview-size">{{ formatFileSize(previewFileSize) }}</span>
+        <span class="preview-filename">{{ previewFileName }}</span>
+        <el-button
+          type="primary"
+          link
+          size="small"
+          :href="previewFileUrl"
+          target="_blank"
+        >
+          新窗口打开 / 下载
+        </el-button>
+      </div>
+
+      <!-- 图片 -->
+      <div
+        v-if="IMAGE_EXTS.includes(previewFileExt)"
+        class="preview-wrap preview-wrap--image"
+      >
+        <img :src="previewFileUrl" class="preview-img" :alt="previewFileName" />
+      </div>
+
+      <!-- PDF -->
+      <div
+        v-else-if="PDF_EXTS.includes(previewFileExt)"
+        class="preview-wrap preview-wrap--pdf"
+      >
+        <iframe
+          :src="previewFileUrl"
+          width="100%"
+          height="520px"
+          class="preview-frame"
+        />
+      </div>
+
+      <!-- 文本 -->
+      <div
+        v-else-if="TEXT_EXTS.includes(previewFileExt)"
+        class="preview-wrap preview-wrap--text"
+      >
+        <pre class="preview-text">{{ previewText || '加载中…' }}</pre>
+      </div>
+
+      <!-- 其他：二进制/不支持预览的格式 -->
+      <div v-else class="preview-wrap preview-wrap--unsupported">
+        <div class="unsupported-icon">📄</div>
+        <div class="unsupported-title">浏览器不支持直接预览此文件类型</div>
+        <div class="unsupported-hint">请点击下方按钮下载后用对应软件打开</div>
+        <el-button type="primary" :href="previewFileUrl" target="_blank">
+          下载文件
+        </el-button>
+      </div>
+    </el-dialog>
   </el-drawer>
 </template>
 
@@ -311,6 +374,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { EditPen } from '@element-plus/icons-vue'
 import { getOrderDetail, submitFeedback, listFeedbacks } from '@/api'
+import { applyDisplayTaskNo } from '@/composables/useDisplayTaskNo'
 import { useUserStore } from '@/stores/user'
 import {
   MATERIAL_OPTIONS,
@@ -462,6 +526,10 @@ async function fetchDetail() {
   try {
     const res = await getOrderDetail(props.orderId)
     detail.value = res || {}
+    // 给物料任务追加 displayTaskNo（公司名_NNN）
+    if (detail.value.tasks?.length && detail.value.customerName) {
+      applyDisplayTaskNo(detail.value.tasks)
+    }
   } catch (e) {
     // 错误已由拦截器处理
     detail.value = {}
@@ -488,12 +556,54 @@ function handleOpen() {
   }
 }
 
-// ---------- 操作 ----------
+// ---------- 文件预览 ----------
+const previewVisible = ref(false)
+const previewFileUrl = ref('')
+const previewFileExt = ref('')
+const previewFileName = ref('')
+const previewFileSize = ref(0)
+const previewText = ref('')
+
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'ico']
+const PDF_EXTS = ['pdf']
+const TEXT_EXTS = ['txt', 'csv', 'json', 'xml', 'log', 'md']
+
+function getFileExt(fileName, url) {
+  const name = fileName || ''
+  const fromName = name.includes('.') ? name.split('.').pop() : ''
+  if (fromName) return fromName.toLowerCase()
+  const urlPart = (url || '').split('?')[0]
+  const fromUrl = urlPart.includes('.') ? urlPart.split('.').pop() : ''
+  return fromUrl.toLowerCase()
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes <= 0) return '—'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB'
+}
+
 function previewVersion(row) {
-  if (row.previewUrl || row.fileUrl || row.url) {
-    window.open(row.previewUrl || row.fileUrl || row.url, '_blank')
-  } else {
-    ElMessage.info('预览功能开发中')
+  const url = row.fileUrl || row.previewUrl || row.url
+  if (!url) {
+    ElMessage.error('文件地址缺失，无法预览')
+    return
+  }
+  const ext = getFileExt(row.fileName, url)
+  previewFileUrl.value = url
+  previewFileExt.value = ext
+  previewFileName.value = row.fileName || '未命名文件'
+  previewFileSize.value = row.fileSize || 0
+  previewText.value = ''
+  previewVisible.value = true
+
+  // 文本类型额外 fetch 内容
+  if (TEXT_EXTS.includes(ext)) {
+    fetch(url)
+      .then(r => r.text())
+      .then(t => { previewText.value = t })
+      .catch(() => { previewText.value = '无法加载文件内容' })
   }
 }
 
@@ -743,5 +853,120 @@ async function handleSubmitFeedback() {
   color: var(--gray-600);
   line-height: 1.5;
   padding-left: 2px;
+}
+
+/* ========== 文件预览弹窗 ========== */
+.preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: var(--gray-50);
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--gray-100);
+  font-size: 13px;
+}
+
+.preview-ext {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--primary-light);
+  color: var(--primary-color);
+  border-radius: 4px;
+  font-weight: 600;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  min-width: 36px;
+  text-align: center;
+}
+
+.preview-size {
+  color: var(--gray-500);
+}
+
+.preview-filename {
+  flex: 1;
+  color: var(--gray-800);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-wrap {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--border-radius-sm);
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.preview-wrap--image {
+  background: #1a1a1a;
+  max-height: 70vh;
+}
+
+.preview-img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-wrap--pdf {
+  background: #fff;
+  padding: 0;
+}
+
+.preview-frame {
+  border: none;
+  background: #fff;
+  display: block;
+}
+
+.preview-wrap--text {
+  background: #1e1e1e;
+  padding: 16px;
+  align-items: flex-start;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.preview-text {
+  margin: 0;
+  color: #e0e0e0;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.preview-wrap--unsupported {
+  background: var(--gray-50);
+  flex-direction: column;
+  padding: 48px 24px;
+  gap: 12px;
+  border-style: dashed;
+}
+
+.unsupported-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.unsupported-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.unsupported-hint {
+  font-size: 13px;
+  color: var(--gray-500);
+  margin-bottom: 4px;
 }
 </style>

@@ -230,8 +230,9 @@ public class OrderServiceImpl implements OrderService {
                 page.stream().map(Order::getId).toList());
 
         // 批量查每个订单的任务列表（含设计师姓名、规格、状态等完整字段，供前端工作台扁平化展示）
+        Map<Long, Order> orderMap = page.stream().collect(Collectors.toMap(Order::getId, o -> o));
         Map<Long, List<OrderTaskVO>> taskVOsByOrder = batchLoadOrderTaskVOs(
-                page.stream().map(Order::getId).toList());
+                page.stream().map(Order::getId).toList(), orderMap);
 
         return page.stream()
                 .map(o -> {
@@ -1237,7 +1238,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /** 批量查订单任务列表并组装 OrderTaskVO（含设计师姓名），供前端工作台扁平化展示 */
-    private Map<Long, List<OrderTaskVO>> batchLoadOrderTaskVOs(List<Long> orderIds) {
+    private Map<Long, List<OrderTaskVO>> batchLoadOrderTaskVOs(List<Long> orderIds, Map<Long, Order> orderMap) {
         Map<Long, List<OrderTaskVO>> result = new HashMap<>();
         if (orderIds == null || orderIds.isEmpty()) return result;
 
@@ -1275,6 +1276,13 @@ public class OrderServiceImpl implements OrderService {
             vo.setVersion(t.getVersion());
             vo.setCreatedAt(t.getCreatedAt());
             vo.setSortOrder(t.getSortOrder());
+
+            // 补订单级字段：customerName + orderNo
+            Order order = orderMap != null ? orderMap.get(t.getOrderId()) : null;
+            if (order != null) {
+                vo.setCustomerName(order.getCustomerName());
+                vo.setOrderNo(order.getOrderNo());
+            }
 
             result.computeIfAbsent(t.getOrderId(), k -> new ArrayList<>()).add(vo);
         }

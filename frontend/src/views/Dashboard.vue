@@ -89,66 +89,46 @@
             :show-header="true"
             size="default"
           >
-            <!-- AM/BL：订单列表 -->
-            <template v-if="!isDS">
-              <el-table-column prop="orderNo" label="订单号" width="160">
-                <template #default="{ row }">
-                  <span class="mono-text link-text" @click="viewOrderDetail(row)">{{ row.orderNo }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="customerName" label="公司名称" min-width="140" />
-              <el-table-column label="状态" width="100" align="center">
-                <template #default="{ row }">
-                  <el-tag
-                    :type="getOrderStatusType(row.status)"
-                    effect="light"
-                    round
-                    size="small"
-                  >
-                    {{ getOrderStatusLabel(row.status) }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="createdAt" label="创建时间" width="160">
-                <template #default="{ row }">
-                  {{ formatDateTime(row.createdAt) }}
-                </template>
-              </el-table-column>
-            </template>
-            <!-- DS：任务列表 -->
-            <template v-else>
-              <el-table-column label="订单号" width="150">
-                <template #default="{ row }">
-                  <span class="mono-text order-no-text">{{ row.orderNo || '—' }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="物料类型" width="100">
-                <template #default="{ row }">
-                  {{ getMaterialLabel(row.materialType) }}
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="100" align="center">
-                <template #default="{ row }">
-                  <el-tag
-                    :type="getTaskStatusType(row.status)"
-                    effect="light"
-                    round
-                    size="small"
-                  >
-                    {{ getTaskStatusLabel(row.status) }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="deadline" label="截止日期" width="120">
-                <template #default="{ row }">
-                  {{ row.deadline || '—' }}
-                </template>
-              </el-table-column>
-            </template>
+            <!-- AM/BL/DS 统一：每行一个任务，展示任务编号 + 订单号 + 物料 + 状态 + 截止日期 -->
+            <el-table-column prop="displayTaskNo" label="任务编号" width="160">
+              <template #default="{ row }">
+                <span class="mono-text">{{ row.displayTaskNo || row.taskNo || row.id || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="订单号" width="160">
+              <template #default="{ row }">
+                <span
+                  class="mono-text link-text"
+                  @click="viewOrderDetail(row)"
+                >{{ row.orderNo || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="物料类型" width="100">
+              <template #default="{ row }">
+                {{ getMaterialLabel(row.materialType) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag
+                  :type="getTaskStatusType(row.status)"
+                  effect="light"
+                  round
+                  size="small"
+                >
+                  {{ getTaskStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="deadline" label="截止日期" width="120">
+              <template #default="{ row }">
+                {{ row.deadline || '—' }}
+              </template>
+            </el-table-column>
           </el-table>
           <el-empty
             v-if="!recentLoading && recentList.length === 0"
-            :description="isDS ? '暂无任务' : '暂无订单'"
+            :description="'暂无任务'"
             :image-size="80"
           />
         </el-card>
@@ -240,6 +220,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { listOrders, listPendingTasks, countArchived, getTaskStats, listMyAuditLogs } from '@/api'
+import { applyDisplayTaskNo, flattenOrdersWithTaskNo } from '@/composables/useDisplayTaskNo'
 import {
   ORDER_STATUS_MAP,
   TASK_STATUS_MAP,
@@ -411,7 +392,6 @@ async function fetchRecent(filterStatus = null) {
       const orders = res.list || []
       const tasks = []
       orders.forEach(order => {
-        // 作废订单不参与展示，与工作台一致
         if (order.status === 'CANCELLED') return
         if (order.tasks && order.tasks.length > 0) {
           order.tasks.forEach(task => {
@@ -428,34 +408,67 @@ async function fetchRecent(filterStatus = null) {
             tasks.push({
               ...task,
               orderId: order.id,
-              orderNo: order.orderNo
+              orderNo: order.orderNo,
+              customerName: order.customerName || task.customerName || '未知公司'
             })
           })
         }
       })
+
+      // 给任务行追加 displayTaskNo（公司名_NNN 格式）
+      applyDisplayTaskNo(tasks)
+
       recentList.value = tasks.slice(0, 5)
     } else if (isArchivedFilter) {
-      // AM/BL 已归档：归档接口返回全部订单（含未归档），这里只保留已归档订单
+      // 已归档（AM/BL/DS 共用）：归档接口返回订单 → flatten 任务行 → 算 displayTaskNo
       const archived = []
       let cursor = null
       let hasMore = true
-      while (hasMore && archived.length < 5) {
+      while (hasMore && archived.length < 20) {
         const params = { limit: 20 }
         if (cursor) params.cursor = cursor
         const res = await listArchivedOrders(params)
-        (res.list || []).forEach(item => {
+        ;(res.list || []).forEach(item => {
           if (item.archiveStatus === '已归档') archived.push(item)
         })
         cursor = res.nextCursor || null
         hasMore = !!res.hasMore && !!cursor
       }
-      recentList.value = archived.slice(0, 5)
+      const tasks = []
+      archived.forEach(order => {
+        if (!order.tasks || order.tasks.length === 0) return
+        order.tasks.forEach(task => {
+          tasks.push({
+            ...task,
+            orderId: order.id,
+            orderNo: order.orderNo,
+            customerName: order.customerName || task.customerName || '未知公司'
+          })
+        })
+      })
+      applyDisplayTaskNo(tasks)
+      recentList.value = tasks.slice(0, 5)
     } else {
-      // AM/BL 最近5条订单（带可选状态筛选）
-      const params = { limit: 5 }
+      // AM/BL：拉订单 → flatten 任务行 → 算 displayTaskNo（公司名_00x）
+      const params = { limit: 50 }
       if (filterStatus) params.status = filterStatus
       const res = await listOrders(params)
-      recentList.value = res.list || []
+      const orders = res.list || []
+      const tasks = []
+      orders.forEach(order => {
+        if (order.status === 'CANCELLED') return
+        if (!order.tasks || order.tasks.length === 0) return
+        order.tasks.forEach(task => {
+          tasks.push({
+            ...task,
+            orderId: order.id,
+            orderNo: order.orderNo,
+            customerName: order.customerName || task.customerName || '未知公司'
+          })
+        })
+      })
+      applyDisplayTaskNo(tasks)
+      recentList.value = tasks.slice(0, 5)
     }
   } catch (e) {
     recentList.value = []
