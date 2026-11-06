@@ -224,18 +224,18 @@
               v-for="(log, index) in sortedLogs"
               :key="log.id || index"
               :timestamp="formatDateTime(log.operatedAt || log.createdAt)"
-              :type="logTypeColor(log.action)"
+              :type="logTypeColor(log.operationType)"
               placement="top"
             >
               <div class="log-item">
                 <div class="log-title">
                   <el-tag
-                    :type="logTypeColor(log.action)"
+                    :type="logTypeColor(log.operationType)"
                     effect="light"
                     size="small"
                     round
                   >
-                    {{ logActionLabel(log.action) }}
+                    {{ log.operationTypeName || '其他' }}
                   </el-tag>
                   <span class="log-operator">{{ log.operatorName || log.operator || '系统' }}</span>
                 </div>
@@ -434,6 +434,8 @@ function logTypeColor(action) {
   if (upper.includes('DELIVER') || upper.includes('ARCHIVE')) return 'success'
   // 作废：danger
   if (upper.includes('CANCEL') || upper.includes('DELETE')) return 'danger'
+  // 提交：warning
+  if (upper.includes('UPLOAD') || upper.includes('FEEDBACK')) return 'warning'
   // 其他：info
   return 'info'
 }

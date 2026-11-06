@@ -1040,7 +1040,7 @@ public class OrderServiceImpl implements OrderService {
             vo.setTaskNo(taskNoMap.get(l.getTaskId()));
             vo.setOperationType(l.getOperationType());
             OperationType ot = OperationType.of(l.getOperationType());
-            vo.setOperationTypeName(ot != null ? ot.getLabel() : l.getOperationType());
+            vo.setOperationTypeName(ot != null ? ot.getLabel() : "其他");
             vo.setDescription(l.getDescription());
             vo.setOperatorId(l.getOperatorId());
             vo.setOperatorName(l.getOperatorName());
