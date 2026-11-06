@@ -8,7 +8,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.SelectProvider;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -27,8 +27,8 @@ public interface OrderMapper extends BaseMapper<Order> {
                                             @Param("userRole") String userRole,
                                             @Param("materialType") String materialType,
                                             @Param("keyword") String keyword,
-                                            @Param("deliveredDateFrom") LocalDateTime deliveredDateFrom,
-                                            @Param("deliveredDateTo") LocalDateTime deliveredDateTo,
+                                            @Param("deliveredDateFrom") LocalDate deliveredDateFrom,
+                                            @Param("deliveredDateTo") LocalDate deliveredDateTo,
                                             @Param("lastId") Long lastId,
                                             @Param("limit") Integer limit);
 
@@ -38,6 +38,6 @@ public interface OrderMapper extends BaseMapper<Order> {
                             @Param("userRole") String userRole,
                             @Param("materialType") String materialType,
                             @Param("keyword") String keyword,
-                            @Param("deliveredDateFrom") LocalDateTime deliveredDateFrom,
-                            @Param("deliveredDateTo") LocalDateTime deliveredDateTo);
+                            @Param("deliveredDateFrom") LocalDate deliveredDateFrom,
+                            @Param("deliveredDateTo") LocalDate deliveredDateTo);
 }

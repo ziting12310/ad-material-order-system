@@ -81,19 +81,14 @@ public class ArchiveSqlProvider {
         }
 
         if (params.get("keyword") != null) {
-            sql.append("AND (o.order_no LIKE CONCAT('%', #{keyword}, '%') ")
-                    .append("OR o.customer_name LIKE CONCAT('%', #{keyword}, '%') ")
-                    .append("OR EXISTS (SELECT 1 FROM order_tasks kt WHERE kt.order_id = o.id ")
-                    .append("AND kt.is_deleted = 0 ")
-                    .append("AND (kt.task_no LIKE CONCAT('%', #{keyword}, '%') ")
-                    .append("OR kt.specification LIKE CONCAT('%', #{keyword}, '%')))) ");
+            sql.append("AND o.customer_name LIKE CONCAT('%', #{keyword}, '%') ");
         }
 
         if (params.get("deliveredDateFrom") != null) {
-            sql.append("AND o.delivered_at >= #{deliveredDateFrom} ");
+            sql.append("AND o.delivery_date >= #{deliveredDateFrom} ");
         }
         if (params.get("deliveredDateTo") != null) {
-            sql.append("AND o.delivered_at <= #{deliveredDateTo} ");
+            sql.append("AND o.delivery_date <= #{deliveredDateTo} ");
         }
         // 注意：MyBatis 的 ParamMap 对不存在的 key 会抛 BindingException，
         // count 语句不传 lastId，必须先 containsKey 判断。

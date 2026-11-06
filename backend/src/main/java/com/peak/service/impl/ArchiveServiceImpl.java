@@ -14,7 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
 
@@ -47,8 +46,8 @@ public class ArchiveServiceImpl implements ArchiveService {
 
         // 订单表 LEFT JOIN 物料表，按订单分组统计；不在 WHERE 中过滤物料状态，
         // 保证无物料 / 部分定稿 / 全部定稿的订单都能返回。
-        LocalDateTime from = parseStart(deliveredDateFrom);
-        LocalDateTime to = parseEnd(deliveredDateTo);
+        LocalDate from = parseDate(deliveredDateFrom);
+        LocalDate to = parseDate(deliveredDateTo);
 
         List<OrderListItemVO> all = orderMapper.selectArchivePage(
                 userId, userRole,
@@ -65,12 +64,8 @@ public class ArchiveServiceImpl implements ArchiveService {
         return new CursorPage<>(page, nextCursor, hasMore);
     }
 
-    private LocalDateTime parseStart(String date) {
-        return isBlank(date) ? null : LocalDate.parse(date).atStartOfDay();
-    }
-
-    private LocalDateTime parseEnd(String date) {
-        return isBlank(date) ? null : LocalDate.parse(date).atTime(23, 59, 59);
+    private LocalDate parseDate(String date) {
+        return isBlank(date) ? null : LocalDate.parse(date);
     }
 
     private boolean isBlank(String value) {
@@ -102,7 +97,7 @@ public class ArchiveServiceImpl implements ArchiveService {
                 userId, userRole,
                 isBlank(materialType) ? null : materialType,
                 isBlank(keyword) ? null : keyword,
-                parseStart(deliveredDateFrom), parseEnd(deliveredDateTo));
+                parseDate(deliveredDateFrom), parseDate(deliveredDateTo));
     }
 
     private String encodeCursor(long lastId) {

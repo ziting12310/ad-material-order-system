@@ -17,7 +17,7 @@
         <el-form-item label="关键字">
           <el-input
             v-model="filters.keyword"
-            placeholder="订单号/公司名称"
+            placeholder="公司名称"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -501,8 +501,8 @@ async function fetchList() {
       if (filters.keyword) params.keyword = filters.keyword
       if (filters.materialType) params.materialType = filters.materialType
       if (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) {
-        params.deliveryDateFrom = filters.deliveryDateRange[0]
-        params.deliveryDateTo = filters.deliveryDateRange[1]
+        params.deliveredDateFrom = filters.deliveryDateRange[0]
+        params.deliveredDateTo = filters.deliveryDateRange[1]
       }
       const res = await listArchivedOrders(params)
       allRows.push(...(res.list || []))
