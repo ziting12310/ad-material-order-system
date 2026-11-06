@@ -27,6 +27,9 @@ public interface FileService {
     /** 推导文件访问 URL（存库用） */
     String resolveAccessUrl(String fileId);
 
+    /** 解析文件原始文件名（从 .meta 读取，读不到返回 null） */
+    String resolveFileName(String fileId);
+
     /** 回填参考文件元数据到 order_reference_files */
     ReferenceFileVO confirmReferenceFile(ReferenceFileConfirmRequest dto, Long userId);
 }

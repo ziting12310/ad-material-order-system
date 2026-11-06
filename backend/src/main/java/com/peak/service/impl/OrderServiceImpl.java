@@ -1392,10 +1392,13 @@ public class OrderServiceImpl implements OrderService {
         vo.setDesignVersions(versions.stream().map(v -> {
             DesignVersionVO dv = new DesignVersionVO();
             dv.setId(v.getId());
+            dv.setTaskId(v.getTaskId());
+            dv.setFileId(v.getFileId());
             dv.setVersionNo(v.getVersionNo());
             dv.setFileUrl(v.getFileUrl());
             dv.setFileName(v.getFileName());
             dv.setFileSize(v.getFileSize());
+            dv.setFileType(v.getFileType());
             dv.setVersionNote(v.getVersionNote());
             dv.setIsFinal(Integer.valueOf(1).equals(v.getFinalVersion()));
             dv.setUploaderName(allUserNames.get(v.getUploadedBy()));

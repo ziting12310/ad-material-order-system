@@ -59,6 +59,11 @@ request.interceptors.request.use(
         if (token) {
             config.headers['Authorization'] = `Bearer ${token}`
         }
+        // FormData 请求必须移除 Content-Type，让浏览器自动设置 multipart/form-data + boundary
+        // 否则全局默认的 application/json 会覆盖，导致后端报 "not a multipart request"
+        if (config.data instanceof FormData) {
+            delete config.headers['Content-Type']
+        }
         return config
     },
     error => Promise.reject(error)
