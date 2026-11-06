@@ -146,9 +146,11 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="deadline" label="截止日期" width="120">
+            <el-table-column prop="deadline" label="截止日期" width="170">
               <template #default="{ row }">
                 {{ row.deadline || '—' }}
+                <!-- 前端计算：截止日期早于今天 → 红色【已延期】 -->
+                <span v-if="isTaskDelayed(row)" class="delay-badge">【已延期】</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" :width="isBL ? 160 : 160" fixed="right" align="center">
@@ -233,10 +235,129 @@
           </div>
         </el-tab-pane>
 
-        <!-- BL：延期预警 -->
+        <!-- BL：延期预警（与「全部任务」共用同一份任务数据，仅前端过滤渲染） -->
         <el-tab-pane v-if="isBL" label="延期预警" name="delay">
-          <div class="delay-warning">
-            <el-empty description="延期订单会在这里展示" :image-size="120" />
+          <!-- 筛选（与全部任务共用同一套筛选条件） -->
+          <div class="filter-bar">
+            <el-form :model="filters" inline label-width="60px" @submit.prevent>
+              <el-form-item label="状态">
+                <el-select
+                  v-model="filters.status"
+                  placeholder="全部状态"
+                  clearable
+                  style="width: 130px"
+                >
+                  <el-option label="待分派" value="CREATED" />
+                  <el-option label="待确定" value="ASSIGNED" />
+                  <el-option label="设计中" value="DESIGNING" />
+                  <el-option label="待审核" value="WAIT_APPROVE" />
+                  <el-option label="已驳回" value="REJECTED" />
+                  <el-option label="已完成" value="APPROVED" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="物料">
+                <el-select
+                  v-model="filters.materialType"
+                  placeholder="全部类型"
+                  clearable
+                  style="width: 130px"
+                >
+                  <el-option
+                    v-for="item in MATERIAL_OPTIONS"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" size="default" :icon="Search" @click="handleSearch">
+                  搜索
+                </el-button>
+                <el-button size="default" :icon="RefreshLeft" @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+
+          <!-- 延期任务表格（样式与全部任务一致） -->
+          <el-table
+            v-loading="loading"
+            :data="pagedDelayedTasks"
+            border
+            style="width: 100%"
+            :header-cell-style="headerCellStyle"
+            class="task-table"
+          >
+            <el-table-column label="所属订单" width="160">
+              <template #default="{ row }">
+                <span class="order-no-text">{{ row.orderNo || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="物料类型" width="100">
+              <template #default="{ row }">
+                {{ getMaterialLabel(row.materialType) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="设计师" width="100">
+              <template #default="{ row }">
+                {{ row.designerName || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="quantity" label="数量" width="80" align="right" />
+            <el-table-column prop="specification" label="规格" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.specification || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag
+                  :type="getTaskStatusType(row.status)"
+                  effect="light"
+                  round
+                  size="small"
+                >
+                  {{ getTaskStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="deadline" label="截止日期" width="170">
+              <template #default="{ row }">
+                {{ row.deadline || '—' }}
+                <span v-if="isTaskDelayed(row)" class="delay-badge">【已延期】</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="160" fixed="right" align="center">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.status === 'CREATED'"
+                  type="primary"
+                  size="small"
+                  @click="handleAssign(row)"
+                >
+                  分派
+                </el-button>
+                <el-button type="primary" link size="small" @click="handleViewDetail(row)">
+                  查看详情
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <!-- 分页（前端本地分页，与全部任务一致） -->
+          <div class="load-more-wrap">
+            <el-empty
+              v-if="!loading && delayedTasks.length === 0"
+              :description="hasTaskFilters ? '暂无符合条件的延期任务' : '暂无延期任务'"
+              :image-size="100"
+            />
+            <ClientPagination
+              v-else
+              :current-page="delayPageNum"
+              :page-size="delayPageSize"
+              :total="delayTotal"
+              @current-change="handleDelayPageChange"
+            />
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -448,6 +569,34 @@ const {
   handlePageChange
 } = useClientPagination(taskList)
 
+// ---------- 延期预警（纯前端计算，后端零改动） ----------
+/**
+ * 延期判定：物料（任务）截止日期早于「今天」即视为延期
+ * 按自然日比较（忽略时分秒），当天截止不算延期
+ */
+function isTaskDelayed(task) {
+  if (!task || !task.deadline) return false
+  const dateText = String(task.deadline).slice(0, 10)
+  const deadline = new Date(dateText + 'T00:00:00')
+  if (isNaN(deadline.getTime())) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return deadline.getTime() < today.getTime()
+}
+
+// 延期任务 = 同一份全量任务数据（已含搜索条件）中「已延期」的部分
+const delayedTasks = computed(() => taskList.value.filter(isTaskDelayed))
+
+// 延期预警 Tab 独立前端分页（复用同一套分页 Hook）
+const {
+  pagedData: pagedDelayedTasks,
+  currentPage: delayPageNum,
+  total: delayTotal,
+  pageSize: delayPageSize,
+  resetPage: resetDelayPage,
+  handlePageChange: handleDelayPageChange
+} = useClientPagination(delayedTasks)
+
 // 从订单列表扁平化为任务（与顶部统计接口保持同一口径）
 function flattenOrders(orders) {
   const tasks = []
@@ -575,12 +724,14 @@ async function fetchTaskList() {
 
 // ---------- 搜索 / 重置 ----------
 function handleSearch() {
+  resetDelayPage()
   fetchTaskList()
 }
 
 function handleReset() {
   filters.status = ''
   filters.materialType = ''
+  resetDelayPage()
   fetchTaskList()
 }
 
@@ -939,9 +1090,9 @@ function formatDateTime(iso) {
 
 // ---------- 生命周期 ----------
 watch(activeTab, (val) => {
-  // BL：延期预警
+  // BL：切到延期预警时回到第一页（数据源与全部任务共用，无需重新请求接口）
   if (isBL.value && val === 'delay') {
-    // 后续可添加延期预警数据加载逻辑
+    resetDelayPage()
   }
 })
 
@@ -1116,11 +1267,12 @@ onMounted(() => {
   color: var(--gray-400);
 }
 
-.delay-warning {
-  min-height: 200px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* 延期标识：红色文字 */
+.delay-badge {
+  margin-left: 4px;
+  color: #f56c6c;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* ========== 上传版本弹窗 ========== */
