@@ -125,13 +125,6 @@
                 {{ row.usageDesc || '—' }}
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="80" align="center" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" link size="small" @click="viewTask(row)">
-                  查看
-                </el-button>
-              </template>
-            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -494,10 +487,6 @@ function handleOpen() {
 }
 
 // ---------- 操作 ----------
-function viewTask(row) {
-  ElMessage.info(`查看任务：${row.taskNo || row.id}`)
-}
-
 function previewVersion(row) {
   if (row.previewUrl || row.fileUrl || row.url) {
     window.open(row.previewUrl || row.fileUrl || row.url, '_blank')
