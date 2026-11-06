@@ -93,11 +93,6 @@
             :header-cell-style="headerCellStyle"
             class="pending-table"
           >
-            <el-table-column prop="taskNo" label="任务编号" width="150">
-              <template #default="{ row }">
-                <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
-              </template>
-            </el-table-column>
             <el-table-column label="所属订单" width="160">
               <template #default="{ row }">
                 <span class="order-no-text">{{ row.orderNo || '—' }}</span>
@@ -282,11 +277,6 @@
             :header-cell-style="headerCellStyle"
             class="archive-table"
           >
-            <el-table-column prop="taskNo" label="任务编号" width="150">
-              <template #default="{ row }">
-                <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
-              </template>
-            </el-table-column>
             <el-table-column label="所属订单" width="160">
               <template #default="{ row }">
                 <span class="order-no-text">{{ row.orderNo || '—' }}</span>
@@ -392,11 +382,6 @@
             :header-cell-style="headerCellStyle"
             class="pending-table"
           >
-            <el-table-column prop="taskNo" label="任务编号" width="150">
-              <template #default="{ row }">
-                <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
-              </template>
-            </el-table-column>
             <el-table-column label="所属订单" width="160">
               <template #default="{ row }">
                 <span class="order-no-text">{{ row.orderNo || '—' }}</span>
