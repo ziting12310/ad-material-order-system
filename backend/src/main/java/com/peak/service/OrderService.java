@@ -53,7 +53,8 @@ public interface OrderService {
                                            String cursor, int limit,
                                            String materialType, String status, String keyword,
                                            Long designerId, Long creatorId,
-                                           String deliveryDateFrom, String deliveryDateTo);
+                                           String deliveryDateFrom, String deliveryDateTo,
+                                           String taskDeadlineFrom, String taskDeadlineTo);
 
     /**
      * 订单列表（页码分页 pageNum/pageSize 模式）
@@ -66,7 +67,8 @@ public interface OrderService {
                                            int pageNum, int pageSize,
                                            String materialType, String status, String keyword,
                                            Long designerId, Long creatorId,
-                                           String deliveryDateFrom, String deliveryDateTo);
+                                           String deliveryDateFrom, String deliveryDateTo,
+                                           String taskDeadlineFrom, String taskDeadlineTo);
 
     /**
      * 订单详情（含参考文件 / 设计稿版本 / 修改意见聚合）— API.md §3.3 GetOrder

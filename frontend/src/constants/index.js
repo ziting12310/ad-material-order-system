@@ -16,6 +16,7 @@ export const MATERIAL_OPTIONS = [
 // 订单状态
 export const ORDER_STATUS_MAP = {
     CREATED:      { label: '待分派', type: 'info' },
+    CONFIRMED:    { label: '已确认', type: 'primary' },
     ASSIGNED:     { label: '已分派', type: 'primary' },
     DESIGNING:    { label: '设计中', type: 'warning' },
     WAIT_APPROVE: { label: '待审核', type: 'warning' },

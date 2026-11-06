@@ -256,6 +256,12 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    public String resolveFileName(String fileId) {
+        FileMeta meta = readMeta(fileId);
+        return meta != null ? meta.fileName() : null;
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public ReferenceFileVO confirmReferenceFile(ReferenceFileConfirmRequest dto, Long userId) {
         return upsertReferenceFile(dto, userId);

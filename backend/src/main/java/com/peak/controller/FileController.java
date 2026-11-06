@@ -63,16 +63,17 @@ public class FileController {
         return ResultVO.success(fileService.upload(fileId, file, orderId, taskId, userId));
     }
 
-    @GetMapping("/{fileId}")
+    @GetMapping("/{fileId:.+}")
     @Operation(summary = "读取文件（无 Token 可匿名预览已绑定订单/任务的文件；带 Token 仍按数据范围校验）")
     public ResponseEntity<Resource> download(@PathVariable String fileId, HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         String userRole = (String) request.getAttribute("userRole");
         Resource resource = fileService.load(fileId, userId, userRole);
+        String fileName = fileService.resolveFileName(fileId);
         MediaType mediaType = MediaTypeFactory.getMediaType(resource)
                 .orElse(MediaType.APPLICATION_OCTET_STREAM);
         ContentDisposition disposition = ContentDisposition.inline()
-                .filename(fileId, StandardCharsets.UTF_8)
+                .filename(fileName != null ? fileName : fileId, StandardCharsets.UTF_8)
                 .build();
         return ResponseEntity.ok()
                 .contentType(mediaType)

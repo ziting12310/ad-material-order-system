@@ -14,6 +14,8 @@ public class DesignVersionVO {
     private String fileUrl;
     private String fileName;
     private Long fileSize;
+    /** 文件扩展名（小写，如 png/psd/pdf），供前端判断预览方式 */
+    private String fileType;
     private String versionNote;
     private Boolean isFinal;
     /** 上传人姓名（与 uploadedByName 同值，供前端表格直接渲染） */

@@ -71,6 +71,17 @@
             style="width: 260px"
           />
         </el-form-item>
+        <el-form-item label="物料截止">
+          <el-date-picker
+            v-model="filters.taskDeadlineRange"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            style="width: 260px"
+          />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :icon="Search" @click="handleSearch">
             搜索
@@ -267,7 +278,8 @@ const isDS = computed(() => userStore.userInfo?.role === 'DS')
 // 是否有筛选条件
 const hasFilters = computed(() => {
   return !!(filters.keyword || filters.materialType || filters.status ||
-    (filters.deliveryDateRange && filters.deliveryDateRange.length === 2))
+    (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) ||
+    (filters.taskDeadlineRange && filters.taskDeadlineRange.length === 2))
 })
 
 // 操作列宽度
@@ -297,7 +309,8 @@ const filters = reactive({
   keyword: '',
   materialType: '',
   status: '',
-  deliveryDateRange: []
+  deliveryDateRange: [],
+  taskDeadlineRange: []
 })
 
 // ---------- 表格 & 前端本地分页 ----------
@@ -362,6 +375,10 @@ async function fetchList() {
         params.deliveryDateFrom = filters.deliveryDateRange[0]
         params.deliveryDateTo = filters.deliveryDateRange[1]
       }
+      if (filters.taskDeadlineRange && filters.taskDeadlineRange.length === 2) {
+        params.taskDeadlineFrom = filters.taskDeadlineRange[0]
+        params.taskDeadlineTo = filters.taskDeadlineRange[1]
+      }
 
       const res = await listOrders(params)
 
@@ -396,6 +413,7 @@ function handleReset() {
   filters.materialType = ''
   filters.status = ''
   filters.deliveryDateRange = []
+  filters.taskDeadlineRange = []
   reloadFirstPage()
 }
 

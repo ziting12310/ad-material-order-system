@@ -165,6 +165,12 @@ public class OrderTaskServiceImpl implements OrderTaskService {
     public OrderTaskVO addTask(Long orderId, TaskCreateItem item, Long operatorId) {
         Order order = findOrderOrThrow(orderId);
 
+        // 确认物料清单后不能再新增物料任务（课程规则①）
+        if (!OrderStatus.CREATED.getCode().equals(order.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
+                    "订单已确认物料清单，不能新增物料任务");
+        }
+
         // 权限：BL 或订单创建人（AM）
         String role = getUserRole(operatorId);
         if (!UserRole.BL.getCode().equals(role)
@@ -216,11 +222,15 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         OrderTask task = findTaskOrThrow(taskId);
         Order order = findOrderOrThrow(task.getOrderId());
 
-        // 状态校验：仅 CREATED 可编辑
+        // 状态校验：仅未确认（CREATED）订单下的任务可编辑
         if (!OrderStatus.CREATED.getCode().equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
                     "当前任务状态为 [%s]，仅已登记状态可修改",
                     OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
+        }
+        if (!OrderStatus.CREATED.getCode().equals(order.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
+                    "订单已确认物料清单，不能直接修改物料任务（应通过确认清单整体替换）");
         }
 
         // 权限：BL 或订单创建人
@@ -300,6 +310,10 @@ public class OrderTaskServiceImpl implements OrderTaskService {
             throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
                     "当前任务状态为 [%s]，仅已登记状态可删除",
                     OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
+        }
+        if (!OrderStatus.CREATED.getCode().equals(order.getStatus())) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_CONFLICT,
+                    "订单已确认物料清单，不能删除物料任务");
         }
 
         String role = getUserRole(operatorId);
@@ -596,7 +610,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
                     "设计版本已被他人修改，请刷新后重试");
         }
 
-        // 处理所有 PENDING Feedback
+        // 处理所有 PENDING Feedback（定稿即视为全部意见已处理）
         LocalDateTime now = LocalDateTime.now();
         orderFeedbackMapper.update(null,
                 new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<OrderFeedback>()
@@ -605,6 +619,20 @@ public class OrderTaskServiceImpl implements OrderTaskService {
                         .set(OrderFeedback::getStatus, FeedbackStatus.PROCESSED.getCode())
                         .set(OrderFeedback::getProcessedAt, now)
         );
+
+        // 自动创建定稿意见 Feedback（AM 确认定稿时填写的 remark，与 rejectTask 自动写修改意见同口径）
+        if (remark != null && !remark.isBlank()) {
+            OrderFeedback fb = new OrderFeedback();
+            fb.setOrderId(task.getOrderId());
+            fb.setTaskId(taskId);
+            fb.setVersionId(latest.getId());
+            fb.setContent(StringEscapeUtils.escapeHtml4(remark));
+            fb.setStatus(FeedbackStatus.PROCESSED.getCode());  // 定稿意见：立即生效，无 PENDING 状态
+            fb.setSubmittedBy(operatorId);
+            fb.setSubmittedAt(now);
+            fb.setProcessedAt(now);
+            orderFeedbackMapper.insert(fb);
+        }
 
         task.setStatus(OrderStatus.APPROVED.getCode());
         task.setApprovedBy(operatorId);
