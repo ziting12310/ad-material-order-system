@@ -26,6 +26,9 @@ public class OperationLogVO {
     @Schema(description = "公司名称（订单客户）", example = "汉唐科技")
     private String customerName;
 
+    @Schema(description = "业务负责人姓名（订单 BL 分派人）", example = "赵六")
+    private String assignedByName;
+
     @Schema(description = "操作类型", example = "TASK_APPROVE")
     private String operationType;
 

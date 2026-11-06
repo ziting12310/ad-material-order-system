@@ -190,6 +190,9 @@
                 {{ item.remark || item.note }}
               </div>
               <div class="log-footer">
+                <span v-if="item.assignedByName" class="log-bl">
+                  业务负责人：{{ item.assignedByName }}
+                </span>
                 <span v-if="item.operatorName" class="log-operator">
                   操作人：{{ item.operatorName }}
                 </span>

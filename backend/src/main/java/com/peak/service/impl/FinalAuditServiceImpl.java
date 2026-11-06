@@ -602,14 +602,19 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                 .toList();
         Map<Long, String> orderNoMap = new HashMap<>();
         Map<Long, String> customerNameMap = new HashMap<>();
+        Map<Long, Long> orderAssignedByMap = new HashMap<>();      // orderId → assignedBy userId
         if (!orderIds.isEmpty()) {
             orderMapper.selectBatchIds(orderIds).forEach(o -> {
                 orderNoMap.put(o.getId(), o.getOrderNo());
                 customerNameMap.put(o.getId(), o.getCustomerName());
+                if (o.getAssignedBy() != null) orderAssignedByMap.put(o.getId(), o.getAssignedBy());
             });
         }
 
-        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap, customerNameMap)).toList();
+        // 批量查业务负责人（BL）姓名：收集去重的 assignedBy userId → users
+        Map<Long, String> assignedByNameMap = batchLoadUserNames(orderAssignedByMap.values().stream().distinct().toList());
+
+        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap, customerNameMap, assignedByNameMap, orderAssignedByMap)).toList();
     }
 
     // ========================================================================
@@ -667,14 +672,19 @@ public class FinalAuditServiceImpl implements FinalAuditService {
                 .toList();
         Map<Long, String> orderNoMap = new HashMap<>();
         Map<Long, String> customerNameMap = new HashMap<>();
+        Map<Long, Long> orderAssignedByMap = new HashMap<>();      // orderId → assignedBy userId
         if (!orderIds.isEmpty()) {
             orderMapper.selectBatchIds(orderIds).forEach(o -> {
                 orderNoMap.put(o.getId(), o.getOrderNo());
                 customerNameMap.put(o.getId(), o.getCustomerName());
+                if (o.getAssignedBy() != null) orderAssignedByMap.put(o.getId(), o.getAssignedBy());
             });
         }
 
-        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap, customerNameMap)).toList();
+        // 批量查业务负责人（BL）姓名：收集去重的 assignedBy userId → users
+        Map<Long, String> assignedByNameMap = batchLoadUserNames(orderAssignedByMap.values().stream().distinct().toList());
+
+        return logs.stream().map(l -> buildLogVO(l, taskNoMap, orderNoMap, customerNameMap, assignedByNameMap, orderAssignedByMap)).toList();
     }
 
     // ========================================================================
@@ -684,7 +694,9 @@ public class FinalAuditServiceImpl implements FinalAuditService {
     private OperationLogVO buildLogVO(OrderOperationLog log,
                                        Map<Long, String> taskNoMap,
                                        Map<Long, String> orderNoMap,
-                                       Map<Long, String> customerNameMap) {
+                                       Map<Long, String> customerNameMap,
+                                       Map<Long, String> assignedByNameMap,
+                                       Map<Long, Long> orderAssignedByMap) {
         OperationLogVO vo = new OperationLogVO();
         vo.setId(log.getId());
         vo.setTaskId(log.getTaskId());
@@ -692,6 +704,9 @@ public class FinalAuditServiceImpl implements FinalAuditService {
         vo.setOrderId(log.getOrderId());
         vo.setOrderNo(orderNoMap.get(log.getOrderId()));
         vo.setCustomerName(customerNameMap.get(log.getOrderId()));
+        // 业务负责人姓名：从 orderAssignedByMap 取该订单的 BL userId → assignedByNameMap 查 name
+        Long blId = orderAssignedByMap.get(log.getOrderId());
+        vo.setAssignedByName(blId != null ? assignedByNameMap.get(blId) : null);
         vo.setOperationType(log.getOperationType());
         OperationType ot = OperationType.of(log.getOperationType());
         vo.setOperationTypeName(ot != null ? ot.getLabel() : "其他");
