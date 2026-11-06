@@ -168,7 +168,7 @@ CREATE TABLE `design_versions` (
   `version`       INT           NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
   `is_deleted`    TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '逻辑删除（0-否 1-是）',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_order_version` (`order_id`, `version_no`) COMMENT '同一订单版本号唯一',
+  UNIQUE KEY `uk_task_version` (`task_id`, `version_no`) COMMENT '同一物料任务版本号唯一（版本号按任务维度递增 V1/V2/...）',
   KEY `idx_order_id` (`order_id`),
   KEY `idx_task_id` (`task_id`),
   KEY `idx_file_id` (`file_id`),

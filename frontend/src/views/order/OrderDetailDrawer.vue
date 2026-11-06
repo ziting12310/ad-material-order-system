@@ -153,7 +153,7 @@
             </el-table-column>
             <el-table-column label="版本说明" min-width="200">
               <template #default="{ row }">
-                {{ row.description || row.remark || '—' }}
+                {{ row.versionNote || '—' }}
               </template>
             </el-table-column>
             <el-table-column label="操作" width="80" align="center" fixed="right">
@@ -351,8 +351,9 @@ const detail = ref({})
 const canSubmitFeedback = computed(() => {
   const role = userStore.userInfo?.role
   const status = detail.value?.status
-  // 仅 WAIT_APPROVE 状态且角色为 AM/BL 时显示
-  return status === 'WAIT_APPROVE' && (role === 'AM' || role === 'BL')
+  // 仅 WAIT_APPROVE 状态且角色为 BL（业务负责人）时显示提交入口
+  // AM 客户经理在本页面只读查看，不提供修改意见提交能力
+  return status === 'WAIT_APPROVE' && role === 'BL'
 })
 
 // ---------- 操作日志按时间倒序排列 ----------

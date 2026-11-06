@@ -122,7 +122,12 @@ public class DesignVersionServiceImpl implements DesignVersionService {
             }
         }
 
-        // ⑥ 插入 DesignVersion（版本号按 taskId 取数字最大值 +1）
+        // ⑥ 原子生成版本号：对父行 order_tasks 加独占锁 → 查最大值 +1 → 插入
+        //    并发上传同一任务时，后到线程会阻塞在前一个线程的 FOR UPDATE 上，
+        //    等前一个线程提交后再读 max，自然得到正确的递增序号；
+        //    数据库 (task_id, version_no) 唯一索引作为最终兜底。
+        orderTaskMapper.selectForUpdate(task.getId());
+
         DesignVersion version = new DesignVersion();
         version.setOrderId(order.getId());
         version.setTaskId(task.getId());
@@ -135,20 +140,15 @@ public class DesignVersionServiceImpl implements DesignVersionService {
         version.setFinalVersion(0);                   // 新上传都不是 final
         version.setUploadedBy(uploaderId);
         version.setUploadedAt(LocalDateTime.now());
+        version.setVersionNo(generateNextVersionNo(task.getId()));
 
-        int attempts = 0;
-        while (true) {
+        try {
+            designVersionMapper.insert(version);
+        } catch (DuplicateKeyException e) {
+            // 理论上不会触发（FOR UPDATE 已串行化），作为跨实例/旁路写入等极端场景的兜底：
+            // 重读版本号后再试一次
             version.setVersionNo(generateNextVersionNo(task.getId()));
-            try {
-                designVersionMapper.insert(version);
-                break;
-            } catch (DuplicateKeyException e) {
-                if (++attempts >= 3) {
-                    throw new BusinessException(ErrorCode.ORDER_VERSION_CONFLICT,
-                            "版本号生成冲突，请刷新后重试");
-                }
-                version.setId(null);
-            }
+            designVersionMapper.insert(version);
         }
 
         // ⑦ 旧意见自动标记为已处理（上传新版本即响应修改意见）
