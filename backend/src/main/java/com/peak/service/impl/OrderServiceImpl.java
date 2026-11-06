@@ -585,11 +585,10 @@ public class OrderServiceImpl implements OrderService {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.WAIT_APPROVE, "驳回设计");
 
-        requireRole(operatorId, UserRole.BL.getCode());
+        requireRole(operatorId, UserRole.AM.getCode());
 
         // 状态机守卫：驳回在对外口径中仍属 REVIEWING（内部 WAIT_APPROVE → DESIGNING）
         checkExternalState(order, OrderStatusEnum.REVIEWING, "驳回设计");
-        requireAnyRole(operatorId, UserRole.BL.getCode(), UserRole.AM.getCode());
 
         checkNotArchived(order);
         checkVersion(order, dto.getVersion());
@@ -655,10 +654,9 @@ public class OrderServiceImpl implements OrderService {
         Order order = findOrderOrThrow(orderId);
         checkStatus(order, OrderStatus.WAIT_APPROVE, "确认终稿");
 
-        requireRole(operatorId, UserRole.BL.getCode());
+        requireRole(operatorId, UserRole.AM.getCode());
 
         checkExternalTransition(order, OrderStatusEnum.FINISHED);   // 状态机：对外 REVIEWING → FINISHED
-        requireAnyRole(operatorId, UserRole.BL.getCode(), UserRole.AM.getCode());
 
         checkNotArchived(order);
         checkVersion(order, dto.getVersion());
