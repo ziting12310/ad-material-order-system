@@ -13,6 +13,8 @@ public class OrderFeedbackVO {
     private String status;
     private Long versionId;
     private String versionNo;
+    /** 提交人姓名（与 submittedByName 同值，供前端直接渲染） */
+    private String submitterName;
     private String submittedByName;
     private LocalDateTime submittedAt;
 }

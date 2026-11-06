@@ -1385,6 +1385,7 @@ public class OrderServiceImpl implements OrderService {
             fb.setStatus(f.getStatus());
             fb.setVersionId(f.getVersionId());
             fb.setVersionNo(versionNoMap.get(f.getVersionId()));
+            fb.setSubmitterName(allUserNames.get(f.getSubmittedBy()));
             fb.setSubmittedByName(allUserNames.get(f.getSubmittedBy()));
             fb.setSubmittedAt(f.getSubmittedAt());
             return fb;

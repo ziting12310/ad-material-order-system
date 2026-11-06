@@ -267,6 +267,7 @@ public class OrderFeedbackServiceImpl implements OrderFeedbackService {
         vo.setVersionId(feedback.getVersionId());
         DesignVersion version = versionMap.get(feedback.getVersionId());
         vo.setVersionNo(version != null ? version.getVersionNo() : null);
+        vo.setSubmitterName(userNames.get(feedback.getSubmittedBy()));
         vo.setSubmittedByName(userNames.get(feedback.getSubmittedBy()));
         vo.setSubmittedAt(feedback.getSubmittedAt());
         return vo;
