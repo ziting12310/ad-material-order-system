@@ -195,11 +195,11 @@ public class OrderController {
     }
 
     /**
-     * 驳回设计稿 — US-005 业务负责人驳回后自动生成 Feedback
+     * 驳回设计稿 — US-005 客户经理驳回后自动生成 Feedback
      * PUT /api/v1/orders/{id}/reject
      */
     @PutMapping("/{id}/reject")
-    @RequireRole({UserRole.BL})
+    @RequireRole({UserRole.AM})
     @Operation(summary = "驳回设计稿（WAIT_APPROVE → DESIGNING）")
     public ResultVO<OrderRejectResponseVO> rejectDesign(@PathVariable Long id,
                                                        @Valid @RequestBody OrderRejectRequest dto,
@@ -209,11 +209,11 @@ public class OrderController {
     }
 
     /**
-     * 确认终稿 — US-007 业务负责人定稿 + 标记 final 版本
+     * 确认终稿 — US-007 客户经理定稿 + 标记 final 版本
      * PUT /api/v1/orders/{id}/approve
      */
     @PutMapping("/{id}/approve")
-    @RequireRole({UserRole.BL})
+    @RequireRole({UserRole.AM})
     @Operation(summary = "确认终稿（WAIT_APPROVE → APPROVED）")
     public ResultVO<OrderApproveResponseVO> approveFinal(@PathVariable Long id,
                                                           @Valid @RequestBody OrderApproveRequest dto,

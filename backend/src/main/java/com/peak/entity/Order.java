@@ -67,7 +67,7 @@ public class Order {
     /** 分派时间 */
     private LocalDateTime assignedAt;
 
-    /** 定稿人ID（FK → users.id，业务负责人 BL；未定稿时为 null） */
+    /** 定稿人ID（FK → users.id，客户经理 AM；未定稿时为 null） */
     private Long approvedBy;
 
     /** 定稿时间 */
