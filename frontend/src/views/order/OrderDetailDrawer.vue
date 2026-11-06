@@ -81,9 +81,9 @@
             size="default"
             class="task-table"
           >
-            <el-table-column label="任务编号" width="130">
-              <template #default="{ row }">
-                <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
+            <el-table-column label="订单号" width="170">
+              <template #default>
+                <span class="mono-text">{{ detail.orderNo || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column label="物料" width="100">
@@ -153,7 +153,7 @@
             </el-table-column>
             <el-table-column label="版本说明" min-width="200">
               <template #default="{ row }">
-                {{ row.description || row.remark || '—' }}
+                {{ row.versionNote || '—' }}
               </template>
             </el-table-column>
             <el-table-column label="操作" width="80" align="center" fixed="right">
