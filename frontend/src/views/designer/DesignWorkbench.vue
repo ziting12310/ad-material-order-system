@@ -1,7 +1,7 @@
 <template>
   <!--
     设计师工作台
-    功能：统计卡片 + Tab切换（我的任务/审核记录）+ 筛选 + 任务表格 + 游标分页
+    功能：统计卡片 + Tab切换（我的任务/延期预警）+ 筛选 + 任务表格 + 游标分页
   -->
   <div class="design-workbench">
     <!-- 页面标题 -->
@@ -233,45 +233,10 @@
           </div>
         </el-tab-pane>
 
-        <!-- 第二个 Tab（DS=审核记录，BL=延期预警） -->
-        <el-tab-pane :label="isBL ? '延期预警' : '我参与的审核记录'" :name="isBL ? 'delay' : 'audit'">
-          <!-- BL：延期预警 -->
-          <div v-if="isBL" class="delay-warning">
+        <!-- BL：延期预警 -->
+        <el-tab-pane v-if="isBL" label="延期预警" name="delay">
+          <div class="delay-warning">
             <el-empty description="延期订单会在这里展示" :image-size="120" />
-          </div>
-          <!-- DS：审核记录 -->
-          <div v-else v-loading="auditLoading" class="audit-log-list">
-            <div
-              v-for="(item, index) in auditLogs"
-              :key="item.id || index"
-              class="audit-log-item"
-            >
-              <div class="log-time">{{ formatDateTime(item.operatedAt || item.createdAt) }}</div>
-              <div class="log-content">
-                <div class="log-header">
-                  <span class="log-order">订单：{{ item.orderNo || '—' }}</span>
-                  <el-tag
-                    :type="logActionType(item.action)"
-                    effect="light"
-                    size="small"
-                    round
-                  >
-                    {{ logActionLabel(item.action) }}
-                  </el-tag>
-                </div>
-                <div v-if="item.remark || item.note" class="log-remark">
-                  备注：{{ item.remark || item.note }}
-                </div>
-                <div v-if="item.operatorName" class="log-operator">
-                  操作人：{{ item.operatorName }}
-                </div>
-              </div>
-            </div>
-            <el-empty
-              v-if="!auditLoading && auditLogs.length === 0"
-              description="暂无审核记录"
-              :image-size="80"
-            />
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -392,7 +357,6 @@ import {
   CircleCheckFilled
 } from '@element-plus/icons-vue'
 import { listOrders, acceptTask, uploadDesignVersion, assignTask, assignOrder, getOrderDetail, listDesigners, getTaskStats, restartDesign } from '@/api'
-import { listMyAuditLogs } from '@/api/audit'
 import { useClientPagination } from '@/composables/useClientPagination'
 import ClientPagination from '@/components/common/ClientPagination.vue'
 import {
@@ -563,7 +527,7 @@ async function fetchTaskList() {
 
       // 注意：status / materialType 是「任务级」筛选，必须在前端按 task 字段过滤。
       // 若下发给后端，会被 applyOrderFilters 当成「订单级」过滤，
-      // 导致订单状态未同步时漏掉仍有待分派任务的订单（出现“任务已分派却显示待分派/无法分派”）。
+      // 导致订单状态未同步时漏掉仍有待分派任务的订单（出现"任务已分派却显示待分派/无法分派"）。
       // 前端过滤见 applyTaskFilters。
 
       const res = await listOrders(params)
@@ -933,53 +897,6 @@ async function handleAssignSubmit() {
   })
 }
 
-// ---------- 审核记录 ----------
-const auditLoading = ref(false)
-const auditLogs = ref([])
-
-async function fetchAuditLogs() {
-  auditLoading.value = true
-  try {
-    const res = await listMyAuditLogs(50)
-    auditLogs.value = res.list || res || []
-  } catch (e) {
-    // mock 数据
-    auditLogs.value = [
-      { id: 1, orderNo: 'ORD-2026-00015', action: 'APPROVE', remark: '设计符合要求，确认定稿', operatorName: '张经理', operatedAt: '2026-11-03 14:20:00' },
-      { id: 2, orderNo: 'ORD-2026-00012', action: 'REJECT', remark: '颜色需要调整，参考稿为准', operatorName: '李主管', operatedAt: '2026-11-02 16:40:00' },
-      { id: 3, orderNo: 'ORD-2026-00008', action: 'APPROVE', remark: '定稿通过', operatorName: '张经理', operatedAt: '2026-10-30 10:15:00' }
-    ]
-  } finally {
-    auditLoading.value = false
-  }
-}
-
-// 审核操作类型映射
-function logActionLabel(action) {
-  const map = {
-    APPROVE: '确认定稿',
-    REJECT: '驳回设计',
-    SUBMIT: '提交审核',
-    ASSIGN: '任务分派',
-    ACCEPT: '设计师待确定',
-    RESTART: '重新开始设计',
-    TASK_RESTART: '重新开始设计',
-    CANCEL: '订单作废'
-  }
-  if (!action) return '—'
-  return map[action.toUpperCase()] || action
-}
-
-function logActionType(action) {
-  if (!action) return 'info'
-  const upper = action.toUpperCase()
-  if (upper.includes('APPROVE')) return 'success'
-  if (upper.includes('REJECT')) return 'danger'
-  if (upper.includes('SUBMIT')) return 'warning'
-  if (upper.includes('ASSIGN') || upper.includes('ACCEPT')) return 'primary'
-  return 'info'
-}
-
 // ---------- 工具函数 ----------
 function formatDateTime(iso) {
   if (!iso) return '—'
@@ -997,10 +914,6 @@ function formatDateTime(iso) {
 
 // ---------- 生命周期 ----------
 watch(activeTab, (val) => {
-  // DS：我参与的审核记录
-  if (!isBL.value && val === 'audit' && auditLogs.value.length === 0) {
-    fetchAuditLogs()
-  }
   // BL：延期预警
   if (isBL.value && val === 'delay') {
     // 后续可添加延期预警数据加载逻辑
@@ -1178,72 +1091,11 @@ onMounted(() => {
   color: var(--gray-400);
 }
 
-/* ========== 审核记录列表 ========== */
-.audit-log-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 200px;
-}
-
 .delay-warning {
   min-height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.audit-log-item {
-  display: flex;
-  gap: 16px;
-  padding: 16px 20px;
-  border: 1px solid var(--gray-100);
-  border-radius: var(--border-radius);
-  background: #ffffff;
-  transition: var(--transition-base);
-}
-
-.audit-log-item:hover {
-  border-color: var(--gray-200);
-  box-shadow: var(--shadow-sm);
-}
-
-.log-time {
-  flex-shrink: 0;
-  width: 140px;
-  font-size: 13px;
-  color: var(--gray-500);
-  padding-top: 2px;
-}
-
-.log-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.log-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-
-.log-order {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--gray-800);
-}
-
-.log-remark {
-  font-size: 13px;
-  color: var(--gray-600);
-  line-height: 1.5;
-  margin-bottom: 4px;
-}
-
-.log-operator {
-  font-size: 12px;
-  color: var(--gray-400);
 }
 
 /* ========== 上传版本弹窗 ========== */

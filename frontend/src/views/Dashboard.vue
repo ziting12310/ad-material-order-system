@@ -160,8 +160,8 @@
       </el-col>
     </el-row>
 
-    <!-- 我参与的审核记录 -->
-    <el-card class="section-card audit-card" shadow="never">
+    <!-- 我参与的审核记录（仅 AM/BL 显示） -->
+    <el-card v-if="!isDS" class="section-card audit-card" shadow="never">
       <template #header>
         <div class="header-flex">
           <span class="section-title">我参与的审核记录</span>
@@ -241,7 +241,7 @@ import {
   List
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
-import { listOrders, listPendingTasks, listMyAuditLogs, countArchived, getTaskStats } from '@/api'
+import { listOrders, listPendingTasks, countArchived, getTaskStats, listMyAuditLogs } from '@/api'
 import {
   ORDER_STATUS_MAP,
   TASK_STATUS_MAP,
@@ -328,7 +328,6 @@ const quickActions = computed(() => {
   }
   // BL
   return [
-
     { label: '订单管理', icon: 'Document', route: '/orders', bgColor: 'var(--info-light)', color: 'var(--info-color)' },
     { label: '定稿审核', icon: 'CircleCheck', route: '/final-audit', bgColor: 'var(--warning-light)', color: '#d97706' },
     { label: '归档查询', icon: 'FolderOpened', route: '/archive', bgColor: 'var(--success-light)', color: 'var(--success-color)' }
@@ -521,9 +520,7 @@ function viewOrderDetail(row) {
 
 // ---------- 操作：跳转到审核记录 ----------
 function goToAuditLogs() {
-  if (isDS.value) {
-    router.push({ path: '/design-workbench', query: { tab: 'audit' } })
-  } else if (isAM.value) {
+  if (isAM.value) {
     router.push('/am-workbench')
   } else {
     router.push({ path: '/final-audit', query: { tab: 'logs' } })
@@ -579,7 +576,9 @@ function formatDateTime(iso) {
 onMounted(() => {
   fetchStats()
   fetchRecent()
-  fetchAuditLogs()
+  if (!isDS.value) {
+    fetchAuditLogs()
+  }
 })
 </script>
 
