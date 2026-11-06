@@ -507,7 +507,7 @@ public class OrderTaskServiceImpl implements OrderTaskService {
     }
 
     // ========================================================================
-    // 【10】确认定稿（WAIT_APPROVE → APPROVED）— BL + AM 均可
+    // 【10】确认定稿（WAIT_APPROVE → APPROVED）— 仅 AM
     // ========================================================================
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -521,10 +521,10 @@ public class OrderTaskServiceImpl implements OrderTaskService {
                     OrderStatus.of(task.getStatus()) != null ? OrderStatus.of(task.getStatus()).getLabel() : task.getStatus());
         }
 
-        // 权限：任务定稿仅业务负责人（BL）
+        // 权限：任务定稿仅客户经理（AM）
         String role = getUserRole(operatorId);
-        if (!UserRole.BL.getCode().equals(role)) {
-            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "仅业务负责人可以确认任务定稿");
+        if (!UserRole.AM.getCode().equals(role)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "仅客户经理可以确认任务定稿");
         }
 
         checkNotArchived(order);
@@ -604,8 +604,8 @@ public class OrderTaskServiceImpl implements OrderTaskService {
         }
 
         String role = getUserRole(operatorId);
-        if (!UserRole.BL.getCode().equals(role)) {
-            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "仅业务负责人可以驳回任务");
+        if (!UserRole.AM.getCode().equals(role)) {
+            throw new BusinessException(ErrorCode.PERMISSION_DENIED, "仅客户经理可以驳回任务");
         }
 
         checkNotArchived(order);
