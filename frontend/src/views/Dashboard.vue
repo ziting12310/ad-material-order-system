@@ -361,16 +361,10 @@ async function fetchStats() {
       stats.designing = designingRes.total || 0
       stats.waitApprove = waitRes.total || 0
 
-<<<<<<< Updated upstream
       // 已归档走专门的统计接口
-=======
-    // 已归档（AM/BL）：与归档查询页共用同一个统计接口，口径为「已归档公司数」（按公司去重）
-    if (isAM.value || isBL.value) {
->>>>>>> Stashed changes
       try {
-        const archivedCount = await countArchived()
-        // 接口返回 ResultVO<Long>，拦截器已解包为纯数字
-        stats.archived = Number(archivedCount) || 0
+        const archivedRes = await countArchived()
+        stats.archived = archivedRes.count || archivedRes.total || 0
       } catch (e) {
         stats.archived = 0
       }

@@ -49,18 +49,13 @@ public class ArchiveSqlProvider {
         return sql.toString();
     }
 
-    /**
-     * 已归档公司数量（统计维度按公司聚合）
-     *
-     * <p>与列表共用同一套 LEFT JOIN + 分组聚合 + 筛选条件：先按订单分组判定是否已归档，
-     * 再对已归档订单的公司名称去重计数（同一公司多笔已归档订单只计 1 家）。
-     */
+    /** 已归档订单数量（同样基于 LEFT JOIN + GROUP BY + 聚合判定） */
     public String selectArchiveCount(Map<String, Object> params) {
         StringBuilder sql = new StringBuilder();
-        sql.append("SELECT COUNT(DISTINCT x.customer_name) FROM (")
-                .append("SELECT o.customer_name ");
+        sql.append("SELECT COUNT(*) FROM (")
+                .append("SELECT o.id ");
         appendFromWhere(sql, params);
-        sql.append(" GROUP BY o.id, o.customer_name HAVING COUNT(t.id) > 0 ")
+        sql.append(" GROUP BY o.id HAVING COUNT(t.id) > 0 ")
                 .append("AND COUNT(t.id) = SUM(CASE WHEN t.status IN ('APPROVED','DELIVERED') THEN 1 ELSE 0 END)")
                 .append(") x");
         return sql.toString();

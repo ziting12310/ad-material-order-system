@@ -34,7 +34,7 @@ public interface OrderMapper extends BaseMapper<Order> {
                                             @Param("lastId") Long lastId,
                                             @Param("limit") Integer limit);
 
-    /** 已归档公司数量：与列表相同的 LEFT JOIN + 分组聚合口径，按公司名称去重计数 */
+    /** 已归档订单数量：与列表相同的 LEFT JOIN + 分组聚合口径 */
     @SelectProvider(type = ArchiveSqlProvider.class, method = "selectArchiveCount")
     long selectArchiveCount(@Param("userId") Long userId,
                             @Param("userRole") String userRole,
