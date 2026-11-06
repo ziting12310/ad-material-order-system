@@ -351,7 +351,7 @@ const detail = ref({})
 const canSubmitFeedback = computed(() => {
   const role = userStore.userInfo?.role
   const status = detail.value?.status
-  // 仅 WAIT_APPROVE 状态且角色为 AM/BL 时显示
+  // 提交修改意见 AM/BL 均可（审核职责已从 BL 移交 AM，但意见提交仍保留 BL 权限）
   return status === 'WAIT_APPROVE' && (role === 'AM' || role === 'BL')
 })
 
