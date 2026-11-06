@@ -221,8 +221,8 @@
           </div>
         </el-tab-pane>
 
-        <!-- ========== 已归档 Tab ========== -->
-        <el-tab-pane label="已归档" name="archive">
+        <!-- ========== 已定稿Tab ========== -->
+        <el-tab-pane label="已定稿" name="archive">
           <!-- 筛选 -->
           <div class="filter-bar">
             <el-form :model="archiveFilters" inline label-width="72px" @submit.prevent>

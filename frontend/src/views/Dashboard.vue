@@ -328,7 +328,7 @@ const quickActions = computed(() => {
   }
   // BL
   return [
-    { label: '新建订单', icon: 'Plus', action: 'createOrder', bgColor: 'var(--primary-light)', color: 'var(--primary-color)' },
+
     { label: '订单管理', icon: 'Document', route: '/orders', bgColor: 'var(--info-light)', color: 'var(--info-color)' },
     { label: '定稿审核', icon: 'CircleCheck', route: '/final-audit', bgColor: 'var(--warning-light)', color: '#d97706' },
     { label: '归档查询', icon: 'FolderOpened', route: '/archive', bgColor: 'var(--success-light)', color: 'var(--success-color)' }
