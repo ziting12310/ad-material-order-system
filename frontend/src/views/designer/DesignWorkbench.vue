@@ -251,7 +251,6 @@
     >
       <div class="upload-dialog-body">
         <div class="dialog-info">
-          <p><span class="label">任务编号：</span><span class="mono-text">{{ uploadDialog.row?.taskNo }}</span></p>
           <p><span class="label">物料类型：</span>{{ getMaterialLabel(uploadDialog.row?.materialType) }}</p>
         </div>
         <el-form :model="uploadForm" label-width="80px">

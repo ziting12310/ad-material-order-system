@@ -117,11 +117,6 @@
             </template>
             <!-- DS：任务列表 -->
             <template v-else>
-              <el-table-column prop="taskNo" label="任务编号" width="140">
-                <template #default="{ row }">
-                  <span class="mono-text">{{ row.taskNo || row.id || '—' }}</span>
-                </template>
-              </el-table-column>
               <el-table-column label="订单号" width="150">
                 <template #default="{ row }">
                   <span class="mono-text order-no-text">{{ row.orderNo || '—' }}</span>
@@ -405,15 +400,28 @@ async function fetchRecent(filterStatus = null) {
     const isArchivedFilter = filterStatus === 'ARCHIVED'
 
     if (isDS.value) {
-      // DS：后端 applyDataScopeFilter 已自动按任务级 designer_id 过滤
-      const params = { limit: 10 }
-      if (filterStatus && filterStatus !== 'ARCHIVED') params.status = filterStatus
+      // DS：后端 applyDataScopeFilter 可能按订单级 designer_id 过滤（任务分派下不准），
+      // 必须在前端按 task.designerId 严格二次过滤，与工作台 flattenOrders 口径完全一致
+      const currentUserId = userStore.userInfo?.id
+      const params = { limit: 50 }
       const res = await listOrders(params)
       const orders = res.list || []
       const tasks = []
       orders.forEach(order => {
+        // 作废订单不参与展示，与工作台一致
+        if (order.status === 'CANCELLED') return
         if (order.tasks && order.tasks.length > 0) {
           order.tasks.forEach(task => {
+            // DS：严格按任务 designerId 过滤，只看分派给我的任务
+            if (task.designerId !== currentUserId) return
+            // 任务级状态过滤：ASSIGNED 包含 REJECTED（已驳回归入待确定，与统计口径一致）
+            if (filterStatus && filterStatus !== 'ARCHIVED') {
+              if (filterStatus === 'ASSIGNED') {
+                if (task.status !== 'ASSIGNED' && task.status !== 'REJECTED') return
+              } else if (task.status !== filterStatus) {
+                return
+              }
+            }
             tasks.push({
               ...task,
               orderId: order.id,
