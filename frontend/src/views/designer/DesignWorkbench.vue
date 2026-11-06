@@ -188,14 +188,14 @@
                   >
                     待确定
                   </el-button>
-                  <!-- 已驳回：显示重新开始设计按钮 -->
+                  <!-- 已驳回：归入待确定，红色【待确定】按钮触发重新开始设计 -->
                   <el-button
                     v-if="row.status === 'REJECTED'"
-                    type="warning"
+                    type="danger"
                     size="small"
                     @click="handleRestart(row)"
                   >
-                    重新开始设计
+                    待确定
                   </el-button>
                   <!-- 设计中：显示上传版本按钮 -->
                   <el-button
@@ -456,7 +456,8 @@ async function fetchStats() {
     // 顶部卡片统一取后端统计接口，口径与下方任务列表完全一致
     const res = await getTaskStats()
     stats.pending = res.created || 0
-    stats.assigned = res.assigned || 0
+    // 已驳回任务统一计入「待确定」总数
+    stats.assigned = (res.assigned || 0) + (res.rejected || 0)
     stats.designing = res.designing || 0
     stats.waitApprove = res.waitApprove || 0
     stats.approved = res.approved || 0
@@ -526,10 +527,15 @@ function flattenOrders(orders) {
   return tasks
 }
 
-// 前端筛选（状态、物料类型均为「任务级」字段）
+// 前端筛选（状态、物料类型均为「任务级」字段；已驳回归入待确定）
 function applyTaskFilters(tasks) {
   return tasks.filter(task => {
-    if (filters.status && task.status !== filters.status) return false
+    if (filters.status) {
+      const statusMatched = filters.status === 'ASSIGNED'
+        ? (task.status === 'ASSIGNED' || task.status === 'REJECTED')
+        : task.status === filters.status
+      if (!statusMatched) return false
+    }
     if (filters.materialType && task.materialType !== filters.materialType) return false
     return true
   })

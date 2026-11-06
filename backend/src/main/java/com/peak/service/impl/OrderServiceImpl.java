@@ -1370,6 +1370,7 @@ public class OrderServiceImpl implements OrderService {
             dv.setFileSize(v.getFileSize());
             dv.setVersionNote(v.getVersionNote());
             dv.setIsFinal(Integer.valueOf(1).equals(v.getFinalVersion()));
+            dv.setUploaderName(allUserNames.get(v.getUploadedBy()));
             dv.setUploadedByName(allUserNames.get(v.getUploadedBy()));
             dv.setUploadedAt(v.getUploadedAt());
             return dv;

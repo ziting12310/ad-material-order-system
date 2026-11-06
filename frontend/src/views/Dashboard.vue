@@ -367,7 +367,8 @@ async function fetchStats() {
       // DS：与「设计师工作台-我的任务」共用同一后端统计接口，保证口径完全一致
       // （当前登录设计师、有效任务状态、排除逻辑删除与作废订单）
       const res = await getTaskStats()
-      stats.pendingAccept = res.assigned || 0
+      // 已驳回任务统一计入「待确定」总数
+      stats.pendingAccept = (res.assigned || 0) + (res.rejected || 0)
       stats.designing = res.designing || 0
       stats.waitApprove = res.waitApprove || 0
       stats.completed = res.approved || 0

@@ -16,6 +16,8 @@ public class DesignVersionVO {
     private Long fileSize;
     private String versionNote;
     private Boolean isFinal;
+    /** 上传人姓名（与 uploadedByName 同值，供前端表格直接渲染） */
+    private String uploaderName;
     private String uploadedByName;
     private LocalDateTime uploadedAt;
 }

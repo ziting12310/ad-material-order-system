@@ -344,6 +344,7 @@ public class DesignVersionServiceImpl implements DesignVersionService {
         vo.setFileSize(version.getFileSize());
         vo.setVersionNote(version.getVersionNote());
         vo.setIsFinal(version.getFinalVersion() != null && version.getFinalVersion() == 1);
+        vo.setUploaderName(userNames.get(version.getUploadedBy()));
         vo.setUploadedByName(userNames.get(version.getUploadedBy()));
         vo.setUploadedAt(version.getUploadedAt());
         return vo;
