@@ -571,10 +571,10 @@ function quickFilter(status) {
 async function handleAccept(row) {
   try {
     await ElMessageBox.confirm(
-      `确定将任务 ${row.taskNo || row.id} 标记为待确定吗？`,
-      '待确定确认',
+      `确定将该订单【${row.orderNo || '—'}】标记为接单状态吗？`,
+      '确认接单',
       {
-        confirmButtonText: '确认待确定',
+        confirmButtonText: '确认',
         cancelButtonText: '取消',
         type: 'primary'
       }
