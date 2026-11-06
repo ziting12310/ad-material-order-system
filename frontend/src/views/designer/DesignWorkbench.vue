@@ -376,7 +376,7 @@ const isDS = computed(() => userStore.userInfo?.role === 'DS')
 
 // 页面标题
 const pageTitle = computed(() => {
-  if (isBL.value) return '任务管理'
+  if (isBL.value) return '订单分派'
   return '设计师工作台'
 })
 
@@ -501,6 +501,32 @@ function applyTaskFilters(tasks) {
 }
 
 /**
+ * 「全部状态」下的展示排序（仅业务负责人 / BL）
+ * 优先级：待分派(CREATED) > 设计中(DESIGNING) > 待审核(WAIT_APPROVE) > 已完成(APPROVED/DELIVERED)
+ * 其它状态（待确定/已驳回等）排在最后；同优先级保持原有顺序（稳定排序）
+ * 选中具体状态时不做排序，保持接口原有顺序
+ */
+const BL_ALL_STATUS_PRIORITY = {
+  CREATED: 0,
+  DESIGNING: 1,
+  WAIT_APPROVE: 2,
+  APPROVED: 3,
+  DELIVERED: 3
+}
+
+function applyAllStatusPriority(tasks) {
+  if (!isBL.value || filters.status) return tasks
+  return tasks
+    .map((task, index) => ({ task, index }))
+    .sort((a, b) => {
+      const ra = BL_ALL_STATUS_PRIORITY[a.task.status] ?? 4
+      const rb = BL_ALL_STATUS_PRIORITY[b.task.status] ?? 4
+      return ra === rb ? a.index - b.index : ra - rb
+    })
+    .map(item => item.task)
+}
+
+/**
  * 拉取全量任务（沿用原有 GET /orders 游标接口，不改后端）
  * 内部循环翻完所有游标页后一次性汇总，再交给前端本地分页（每页 10 条）
  */
@@ -538,7 +564,7 @@ async function fetchTaskList() {
       hasMore = !!res.hasMore && !!cursor
     }
 
-    taskList.value = allTasks
+    taskList.value = applyAllStatusPriority(allTasks)
     resetTaskPage()   // 数据刷新后回到第一页
   } catch (e) {
     taskList.value = []
