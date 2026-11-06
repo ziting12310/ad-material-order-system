@@ -425,9 +425,21 @@ async function fetchRecent(filterStatus = null) {
       })
       recentList.value = tasks.slice(0, 5)
     } else if (isArchivedFilter) {
-      // AM/BL 已归档：走归档接口
-      const res = await listArchivedOrders({ limit: 5 })
-      recentList.value = res.list || []
+      // AM/BL 已归档：归档接口返回全部订单（含未归档），这里只保留已归档订单
+      const archived = []
+      let cursor = null
+      let hasMore = true
+      while (hasMore && archived.length < 5) {
+        const params = { limit: 20 }
+        if (cursor) params.cursor = cursor
+        const res = await listArchivedOrders(params)
+        (res.list || []).forEach(item => {
+          if (item.archiveStatus === '已归档') archived.push(item)
+        })
+        cursor = res.nextCursor || null
+        hasMore = !!res.hasMore && !!cursor
+      }
+      recentList.value = archived.slice(0, 5)
     } else {
       // AM/BL 最近5条订单（带可选状态筛选）
       const params = { limit: 5 }

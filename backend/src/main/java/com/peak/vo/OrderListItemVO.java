@@ -25,6 +25,15 @@ public class OrderListItemVO {
     /** 已定稿任务数 */
     private Integer approvedTaskCount;
 
+    /** 是否已归档：订单下全部有效物料均已定稿 */
+    private Boolean archived;
+
+    /** 归档状态文案：已归档 / 未归档 */
+    private String archiveStatus;
+
+    /** 归档时间：全部物料定稿时取最后一次定稿时间；存在未定稿物料时为 null */
+    private LocalDateTime archivedAt;
+
     /** 任务列表（批量组装，前端工作台用于扁平化展示任务级字段） */
     private List<OrderTaskVO> tasks;
 }

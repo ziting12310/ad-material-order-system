@@ -92,8 +92,8 @@
         </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag type="success" effect="light" round size="small">
-              已归档
+            <el-tag :type="row.archiveStatus === '已归档' ? 'success' : 'info'" effect="light" round size="small">
+              {{ row.archiveStatus || '未归档' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -143,7 +143,9 @@
         <div class="drawer-header">
           <div class="header-left">
             <span class="order-no">{{ detail.orderNo || '—' }}</span>
-            <el-tag type="success" effect="light" round size="small">已归档</el-tag>
+            <el-tag :type="detail.archiveStatus === '已归档' ? 'success' : 'info'" effect="light" round size="small">
+              {{ detail.archiveStatus || '未归档' }}
+            </el-tag>
           </div>
           <div class="header-right">
             <el-tag type="info" effect="plain" size="small">只读</el-tag>
@@ -160,7 +162,9 @@
                 <span class="mono-text">{{ detail.orderNo || '—' }}</span>
               </el-descriptions-item>
               <el-descriptions-item label="归档状态">
-                <el-tag type="success" effect="light" round size="small">已归档</el-tag>
+                <el-tag :type="detail.archiveStatus === '已归档' ? 'success' : 'info'" effect="light" round size="small">
+                  {{ detail.archiveStatus || '未归档' }}
+                </el-tag>
               </el-descriptions-item>
               <el-descriptions-item label="公司名称">
                 {{ detail.customerName || '—' }}
@@ -535,17 +539,22 @@ function handleViewDetail(row) {
 
 async function handleDrawerOpen() {
   activeTab.value = 'basic'
-  detail.value = {}
+  const row = detailDrawer.row
+  // 详情接口不含归档状态，沿用列表接口返回的状态值
+  detail.value = { ...row }
   detailDrawer.loading = true
   try {
-    const row = detailDrawer.row
     if (row?.id) {
       const res = await getArchivedOrder(row.id)
-      detail.value = res || {}
+      detail.value = {
+        ...(res || {}),
+        archiveStatus: row.archiveStatus,
+        archivedAt: row.archivedAt
+      }
     }
   } catch (e) {
     // 用行数据兜底
-    detail.value = { ...detailDrawer.row }
+    detail.value = { ...row }
   } finally {
     detailDrawer.loading = false
   }
