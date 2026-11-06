@@ -87,14 +87,15 @@ public class ArchiveServiceImpl implements ArchiveService {
     }
 
     // ========================================================================
-    // 【3】归档卡片 count — 与 listArchivedOrders 完全相同的筛选逻辑
+    // 【3】归档公司数量 count — 与 listArchivedOrders 完全相同的筛选逻辑
+    // 统计维度：按公司聚合，已归档订单的公司名称去重计数
     // ========================================================================
     @Override
     public long countArchived(Long userId, String userRole,
                               String materialType, String keyword,
                               String deliveredDateFrom, String deliveredDateTo,
                               String taskDeadlineFrom, String taskDeadlineTo) {
-        // 与列表相同的 LEFT JOIN + 分组聚合口径，仅统计「已归档」订单
+        // 与列表相同的 LEFT JOIN + 分组聚合口径，先判定已归档订单，再按公司去重计数
         return orderMapper.selectArchiveCount(
                 userId, userRole,
                 isBlank(materialType) ? null : materialType,

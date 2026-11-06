@@ -71,7 +71,10 @@
       <template #header>
         <div class="table-header">
           <span class="table-title">归档订单列表</span>
-          <span class="table-count">共 {{ tableData.length }} 条</span>
+          <!-- 已归档公司数：与首页【已归档】卡片共用同一统计接口与筛选条件 -->
+          <span class="table-count">
+            已归档公司 {{ archivedCompanyCount }} 家 · 共 {{ tableData.length }} 条
+          </span>
         </div>
       </template>
 
@@ -150,7 +153,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Search, RefreshLeft } from '@element-plus/icons-vue'
-import { listArchivedOrders } from '@/api/audit'
+import { listArchivedOrders, countArchived } from '@/api/audit'
 import { useClientPagination } from '@/composables/useClientPagination'
 import ClientPagination from '@/components/common/ClientPagination.vue'
 import OrderDetailDrawer from '@/views/order/OrderDetailDrawer.vue'
@@ -181,6 +184,8 @@ const hasFilters = computed(() => {
 // ---------- 表格 & 前端本地分页 ----------
 const loading = ref(false)
 const tableData = ref([])
+// 已归档公司数（与首页【已归档】卡片同一统计口径）
+const archivedCompanyCount = ref(0)
 
 const {
   pagedData: pagedTableData,
@@ -205,26 +210,33 @@ function formatDateTime(iso) {
     + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
 }
 
+// 归档筛选参数（列表与统计接口共用，保证筛选条件完全一致）
+function buildFilterParams() {
+  const params = {}
+  if (filters.keyword) params.keyword = filters.keyword
+  if (filters.materialType) params.materialType = filters.materialType
+  if (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) {
+    params.deliveredDateFrom = filters.deliveryDateRange[0]
+    params.deliveredDateTo = filters.deliveryDateRange[1]
+  }
+  if (filters.taskDeadlineRange && filters.taskDeadlineRange.length === 2) {
+    params.taskDeadlineFrom = filters.taskDeadlineRange[0]
+    params.taskDeadlineTo = filters.taskDeadlineRange[1]
+  }
+  return params
+}
+
 // ---------- 数据加载（循环游标接口拉全量） ----------
 async function fetchList() {
   loading.value = true
   try {
+    const baseParams = buildFilterParams()
     const allRows = []
     let cursor = null
     let hasMore = true
     while (hasMore) {
-      const params = { limit: PAGE_SIZE }
+      const params = { ...baseParams, limit: PAGE_SIZE }
       if (cursor) params.cursor = cursor
-      if (filters.keyword) params.keyword = filters.keyword
-      if (filters.materialType) params.materialType = filters.materialType
-      if (filters.deliveryDateRange && filters.deliveryDateRange.length === 2) {
-        params.deliveredDateFrom = filters.deliveryDateRange[0]
-        params.deliveredDateTo = filters.deliveryDateRange[1]
-      }
-      if (filters.taskDeadlineRange && filters.taskDeadlineRange.length === 2) {
-        params.taskDeadlineFrom = filters.taskDeadlineRange[0]
-        params.taskDeadlineTo = filters.taskDeadlineRange[1]
-      }
       const res = await listArchivedOrders(params)
       allRows.push(...(res.list || []))
       cursor = res.nextCursor || null
@@ -232,8 +244,17 @@ async function fetchList() {
     }
     tableData.value = allRows
     resetArchivePage()
+
+    // 同一套筛选条件 + 同一统计接口（按公司去重），与首页卡片数字保持一致
+    try {
+      const count = await countArchived(baseParams)
+      archivedCompanyCount.value = Number(count) || 0
+    } catch (e) {
+      archivedCompanyCount.value = 0
+    }
   } catch (e) {
     tableData.value = []
+    archivedCompanyCount.value = 0
     resetArchivePage()
   } finally {
     loading.value = false

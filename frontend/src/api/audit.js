@@ -79,11 +79,12 @@ export function getArchivedOrder(id) {
 }
 
 /**
- * 归档订单数量统计
+ * 已归档公司数量统计（按公司去重计数）
  * GET /api/v1/archive/count
+ * 与归档列表共用同一套筛选条件：materialType / keyword / deliveredDateFrom / deliveredDateTo / taskDeadlineFrom / taskDeadlineTo
  */
-export function countArchived() {
-    return request.get('/archive/count', { silent: true })
+export function countArchived(params) {
+    return request.get('/archive/count', { params, silent: true })
 }
 
 // ==================== 任务级定稿/驳回 ====================
