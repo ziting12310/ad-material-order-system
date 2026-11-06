@@ -684,7 +684,7 @@ public class FinalAuditServiceImpl implements FinalAuditService {
         vo.setOrderNo(orderNoMap.get(log.getOrderId()));
         vo.setOperationType(log.getOperationType());
         OperationType ot = OperationType.of(log.getOperationType());
-        vo.setOperationTypeName(ot != null ? ot.getLabel() : log.getOperationType());
+        vo.setOperationTypeName(ot != null ? ot.getLabel() : "其他");
         vo.setDescription(log.getDescription());
         vo.setOperatorId(log.getOperatorId());
         vo.setOperatorName(log.getOperatorName());
