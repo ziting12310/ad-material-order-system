@@ -53,14 +53,7 @@
           </el-button>
         </el-form>
 
-        <div class="demo-tip">
-          <p>演示账号：</p>
-          <ul>
-            <li>客户经理：<code>am_demo / 123456</code></li>
-            <li>业务负责人：<code>bl_demo / 123456</code></li>
-            <li>设计人员：<code>ds_demo / 123456</code></li>
-          </ul>
-        </div>
+        
 
         <div class="register-link">
           还没有账号？
